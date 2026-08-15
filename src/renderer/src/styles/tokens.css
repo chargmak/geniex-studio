@@ -194,6 +194,10 @@
 
   --selection: color-mix(in srgb, var(--q-brand-400) 35%, transparent);
   --scrollbar-thumb: #ffffff26;
+
+  /* React Bits App-UI blocks read these */
+  --rb-accent: var(--accent);
+  --rb-accent-fg: var(--accent-fg);
 }
 
 :root[data-theme='light'] {
@@ -240,4 +244,6 @@
 
   --selection: color-mix(in srgb, var(--q-brand-500) 25%, transparent);
   --scrollbar-thumb: #00000026;
+  --rb-accent: var(--accent);
+  --rb-accent-fg: var(--accent-fg);
 }

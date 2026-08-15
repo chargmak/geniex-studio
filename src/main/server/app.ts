@@ -5,6 +5,8 @@ import { healthRoutes } from './routes/health'
 import { genieRoutes } from './routes/genie'
 import { modelRoutes } from './routes/models'
 import { settingsRoutes } from './routes/settings'
+import { conversationRoutes } from './routes/conversations'
+import { attachmentRoutes } from './routes/attachments'
 import { spaStatic } from './static'
 
 export interface StudioServer {
@@ -33,6 +35,8 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/genie', genieRoutes)
   app.route('/api/models', modelRoutes)
   app.route('/api/settings', settingsRoutes)
+  app.route('/api/conversations', conversationRoutes)
+  app.route('/api/attachments', attachmentRoutes)
 
   app.notFound((c) => {
     if (new URL(c.req.url).pathname.startsWith('/api/')) return c.json({ error: 'not found' }, 404)

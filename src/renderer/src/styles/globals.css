@@ -147,6 +147,9 @@
   --text-3xl--line-height: 36px;
   --text-4xl: 36px;
   --text-4xl--line-height: 44px;
+  /* React Bits App-UI theme hooks → Qualcomm accent */
+  --color-rb-accent: var(--rb-accent);
+  --color-rb-accent-fg: var(--rb-accent-fg);
 }
 
 /* ------------------------------------------------------------------ Base */
@@ -276,4 +279,17 @@
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* React Bits App-UI radius hooks (--rb-accent lives in tokens.css alias layer). Qualcomm radius: 4/8/12. */
+:root {
+  --rb-radius: 8px;
+  --rb-r-xs: 2px;
+  --rb-r-sm: 4px;
+  --rb-r-md: 6px;
+  --rb-r-lg: 8px;
+  --rb-r-xl: 10px;
+  --rb-r-2xl: 12px;
+  --rb-r-3xl: 14px;
+  --rb-r-4xl: 16px;
 }

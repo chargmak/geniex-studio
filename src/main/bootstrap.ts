@@ -11,6 +11,7 @@ import { ModelManager } from './geniex/models'
 import { PullManager } from './geniex/pulls'
 import { openDatabase } from './db'
 import { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from './db/repos'
+import { TurnRunner } from './chat/turns'
 
 export interface BootOptions {
   mode: AppContext['mode']
@@ -53,6 +54,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     models,
     pulls,
     db,
+    turns: null as unknown as TurnRunner,
     repos: {
       conversations: new ConversationRepo(db),
       messages: new MessageRepo(db),
@@ -60,6 +62,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
       telemetry: new TelemetryRepo(db),
     },
   }
+  ctx.turns = new TurnRunner(ctx)
 
   const port = opts.port ?? Number(process.env.GENIEX_STUDIO_PORT ?? DEFAULT_STUDIO_PORT)
   const server = await startServer(ctx, { host: opts.host, port })

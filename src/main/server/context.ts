@@ -5,6 +5,7 @@ import type { ModelManager } from '../geniex/models'
 import type { PullManager } from '../geniex/pulls'
 import type { Database } from '../db'
 import type { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from '../db/repos'
+import type { TurnRunner } from '../chat/turns'
 
 /**
  * Everything long-lived that HTTP routes need. Constructed once at boot (Electron main or the headless runner)
@@ -26,6 +27,7 @@ export interface AppContext {
   models: ModelManager
   pulls: PullManager
   db: Database
+  turns: TurnRunner
   repos: {
     conversations: ConversationRepo
     messages: MessageRepo
