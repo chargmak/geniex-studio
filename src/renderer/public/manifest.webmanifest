@@ -1,0 +1,11 @@
+{
+  "name": "GenieX Studio",
+  "short_name": "GenieX Studio",
+  "description": "Local-first studio for Qualcomm GenieX on Snapdragon — chat, vision and agents on the Hexagon NPU.",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#151516",
+  "theme_color": "#151516",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

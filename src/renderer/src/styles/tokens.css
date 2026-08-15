@@ -1,0 +1,243 @@
+/*
+  Qualcomm base design system tokens (--q-*), transcribed from docs/design-system.md.
+  Product UI only: no Alfabet, no marketing page tokens except the few --gx-* used for job/status accents.
+  Dual-mode by suffix: -1 = light surface set, -2 = dark surface set. The [data-theme] alias layer at the bottom
+  is what components should consume (--surface-1, --text-primary, ...), so a theme switch is a single remap.
+*/
+:root {
+  /* ---------- 1.1 / 1.2 Typography ---------- */
+  --q-font-family: 'Roboto Flex Variable', 'Roboto Flex', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  /* Qualcomm Next is proprietary; headings fall back to Roboto Flex at heading weights (documented deviation). */
+  --q-font-family-brand: 'Qualcomm Next', 'Roboto Flex Variable', 'Roboto Flex', system-ui, sans-serif;
+  --q-font-mono: 'Roboto Mono Variable', 'Roboto Mono', Consolas, 'Cascadia Mono', 'Courier New', monospace;
+
+  --q-font-weight-regular: 400;
+  --q-font-weight-medium: 500;
+  --q-font-weight-semi-bold: 560;
+  --q-font-weight-bold: 660;
+  --q-font-weight-extra-bold: 680;
+  --q-font-weight-heading-subtle: 520;
+
+  --q-font-stretch-normal: 110%;
+  --q-font-stretch-wide: 114%;
+  --q-letter-spacing-heading: 0.01em;
+
+  /* ---------- 1.4 Color ramps ---------- */
+  --q-neutral-00: #ffffff; --q-neutral-50: #fafbfc; --q-neutral-100: #f5f6f7; --q-neutral-150: #edf0f2;
+  --q-neutral-200: #e4e7eb; --q-neutral-250: #dadce0; --q-neutral-300: #cacdd1; --q-neutral-350: #b7b9bd;
+  --q-neutral-400: #9ea0a3; --q-neutral-450: #8b8c8f; --q-neutral-500: #7c7d80; --q-neutral-550: #6f7073;
+  --q-neutral-600: #636366; --q-neutral-650: #59595c; --q-neutral-700: #4f4f52; --q-neutral-750: #434345;
+  --q-neutral-800: #343436; --q-neutral-850: #2a2a2b; --q-neutral-900: #202021; --q-neutral-950: #151516;
+  --q-neutral-1000: #000000;
+
+  --q-brand-50: #eef3ff; --q-brand-100: #dee7ff; --q-brand-200: #acc3ff; --q-brand-300: #7ba0ff; --q-brand-400: #4076ff;
+  --q-brand-500: #3253dc; --q-brand-600: #1e3bae; --q-brand-700: #162c83; --q-brand-800: #10216b; --q-brand-900: #0f1c52; --q-brand-950: #070f2c;
+
+  --q-blue-50: #e9f2fc; --q-blue-100: #d2e5f9; --q-blue-200: #a5ccf3; --q-blue-300: #79b2ec; --q-blue-400: #4c99e6;
+  --q-blue-500: #1c72c9; --q-blue-600: #1660ad; --q-blue-700: #134c86; --q-blue-800: #0f3b67; --q-blue-900: #0a2a4a; --q-blue-950: #06192d;
+
+  --q-red-50: #fde7e9; --q-red-100: #fbd0d3; --q-red-200: #f7a1a8; --q-red-300: #f3727c; --q-red-400: #ef4351;
+  --q-red-500: #e01b32; --q-red-600: #bc101e; --q-red-700: #8d0c16; --q-red-800: #5e080f; --q-red-900: #44050a; --q-red-950: #2f0407;
+
+  --q-orange-50: #fff3e6; --q-orange-100: #ffe6cc; --q-orange-200: #ffce99; --q-orange-300: #feb567; --q-orange-400: #ffa444;
+  --q-orange-500: #fe8a0e; --q-orange-600: #db7305; --q-orange-700: #984f01; --q-orange-800: #663500; --q-orange-900: #442403; --q-orange-950: #331a00;
+
+  --q-yellow-50: #fef7e7; --q-yellow-100: #ffeec6; --q-yellow-200: #ffe29e; --q-yellow-300: #ffd86d; --q-yellow-400: #fac633;
+  --q-yellow-500: #eeb204; --q-yellow-600: #cc9300; --q-yellow-700: #996e00; --q-yellow-800: #664900; --q-yellow-900: #443301; --q-yellow-950: #332600;
+
+  --q-green-50: #e4ffe4; --q-green-100: #c6f0c7; --q-green-200: #9bdd9d; --q-green-300: #6cc86f; --q-green-400: #55ab4d;
+  --q-green-500: #368637; --q-green-600: #306731; --q-green-700: #224a23; --q-green-800: #1d3f1e; --q-green-900: #163117; --q-green-950: #102310;
+
+  --q-teal-50: #e0fffb; --q-teal-100: #b9fbf3; --q-teal-200: #81e4de; --q-teal-300: #55cccc; --q-teal-400: #0eabab;
+  --q-teal-500: #247f85; --q-teal-600: #1a6b71; --q-teal-700: #145357; --q-teal-800: #0f3f47; --q-teal-900: #0c3137; --q-teal-950: #09252a;
+
+  --q-purple-50: #edebfa; --q-purple-100: #dbd6f5; --q-purple-200: #b7aeea; --q-purple-300: #a294ef; --q-purple-400: #7764e2;
+  --q-purple-500: #5e4bd1; --q-purple-600: #3c2aa2; --q-purple-700: #2d1f7a; --q-purple-800: #1e1551; --q-purple-900: #181041; --q-purple-950: #0f0a29;
+
+  --q-magenta-50: #fbeaf1; --q-magenta-100: #f7d4e3; --q-magenta-200: #eeaac6; --q-magenta-300: #e67faa; --q-magenta-400: #de548e;
+  --q-magenta-500: #d2296f; --q-magenta-600: #ab215b; --q-magenta-700: #801944; --q-magenta-800: #55112d; --q-magenta-900: #3a0b20; --q-magenta-950: #2b0817;
+
+  /* ---------- 1.5 Semantic ---------- */
+  --q-semantic-primary: #3253dc;
+  --q-semantic-secondary: #7ba0ff;
+  --q-semantic-informative: #3253dc;
+  --q-semantic-positive: #368637;
+  --q-semantic-negative: #e01b32;
+  --q-semantic-warning: #eeb204;
+  --q-semantic-neutral: #626b85;
+  /* Job-state colors: reserve for model load / pull / run status only. */
+  --q-semantic-pending: #f68000;
+  --q-semantic-running: #dc4f81;
+  --q-semantic-initializing: #b55fce;
+
+  /* ---------- 1.6 Surface, text, foreground, border ---------- */
+  --q-background-light-1: #fafbfc; --q-background-light-2: #f5f6f7; --q-background-light-3: #edf0f2; --q-background-light-4: #e4e7eb;
+  --q-background-dark-1: #151516;  --q-background-dark-2: #202021;  --q-background-dark-3: #2a2a2b;  --q-background-dark-4: #343436;
+
+  --q-text-light-primary: #000000f2;   --q-text-dark-primary: #fffffff2;
+  --q-text-light-secondary: #0000008c; --q-text-dark-secondary: #ffffff8c;
+  --q-text-light-disabled: #00000066;  --q-text-dark-disabled: #ffffff66;
+
+  --q-foreground-light-primary: #000000;   --q-foreground-dark-primary: #ffffff;
+  --q-foreground-light-secondary: #00000080; --q-foreground-dark-secondary: #ffffff66;
+  --q-foreground-light-disabled: #00000040;  --q-foreground-dark-disabled: #ffffff40;
+
+  --q-border-light-subtle: #00000014;  --q-border-dark-subtle: #ffffff14;
+  --q-border-light-default: #00000026; --q-border-dark-default: #ffffff26;
+  --q-border-light-strong: #0000004d;  --q-border-dark-strong: #ffffff4d;
+
+  /* ---------- 1.7 Elevation ---------- */
+  --q-elevation-light-1: 0 1px 2px #0003;
+  --q-elevation-light-2: 0 3px 5px #0003;
+  --q-elevation-light-3: 0 5px 10px 1px #0003;
+  --q-elevation-light-4: 0 7px 20px 5px #0003;
+  --q-elevation-light-5: 0 20px 30px 15px #0003;
+  --q-elevation-dark-1: 0 1px 2px #0006;
+  --q-elevation-dark-2: 0 3px 5px #0006;
+  --q-elevation-dark-3: 0 5px 10px 1px #0006;
+  --q-elevation-dark-4: 0 7px 20px 5px #0006;
+  --q-elevation-dark-5: 0 20px 30px 15px #0006;
+
+  /* ---------- 1.8 Radius (formalized) ---------- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* ---------- 1.9 Layout ---------- */
+  --q-header-height: 66px;
+  --q-row-height: 31px;
+  --q-prose-max: 800px;
+  --q-icon-size-xs: 12px; --q-icon-size-s: 14px; --q-icon-size-m: 16px; --q-icon-size-l: 20px; --q-icon-size-xl: 22px;
+
+  /* ---------- 1.11 Motion ---------- */
+  --q-transition-duration-fast: 0.161s;
+  --q-transition-duration-normal: 0.3s;
+  --q-transition-duration-slow: 0.6s; /* the shipped DS declares 600s (typo); hard-coded here */
+  --q-ease-in-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --q-ease-quick: cubic-bezier(0.6, 0, 0.61, 1);
+  --q-default-ease: var(--q-transition-duration-fast) var(--q-ease-in-out);
+  --q-transition-colors: background-color, border-color, color, fill, stroke, outline-color;
+
+  /* ---------- 1.12 Z-index ---------- */
+  --z-dropdown-arrow: 999;
+  --z-modal-backdrop: 990;
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-modal: 1055;
+  --z-popover: 1070;
+  --z-tooltip: 1080;
+  --z-toast: 1090;
+  --z-alert-banner: 1100;
+
+  /* ---------- 2.x Component constants ---------- */
+  --q-border-width: 0.8px;
+  --q-control-height: 40px;
+  --q-control-height-sm: 32px;
+  --q-control-height-xs: 28px;
+  --q-badge-height: 20px;
+
+  /* ---------- 3. GenieX page tokens actually used in product UI ---------- */
+  --gx-cta: #2d3ee0;
+  --gx-accent-line: #7697ff;
+  --gx-badge-bg: #283c97;
+  --gx-badge-fg: #b8ccff;
+  --gx-gold: #fabb00;       /* community-model accent (HF / GGUF) */
+  --gx-highlight: #f5f032;  /* "New" badge (dark text only) */
+  --gx-hero-bg: #020b3f;
+}
+
+/* ---------- Alias layer (themable) ----------
+   Dark is the product default; light remaps the same aliases. Components consume ONLY these. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface-1: var(--q-background-dark-1);
+  --surface-2: var(--q-background-dark-2);
+  --surface-3: var(--q-background-dark-3);
+  --surface-4: var(--q-background-dark-4);
+  --surface-inverse: var(--q-background-light-1);
+
+  --text-primary: var(--q-text-dark-primary);
+  --text-secondary: var(--q-text-dark-secondary);
+  --text-disabled: var(--q-text-dark-disabled);
+  --text-inverse: var(--q-text-light-primary);
+
+  --fg-primary: var(--q-foreground-dark-primary);
+  --fg-secondary: var(--q-foreground-dark-secondary);
+  --fg-disabled: var(--q-foreground-dark-disabled);
+
+  --border-subtle: var(--q-border-dark-subtle);
+  --border-default: var(--q-border-dark-default);
+  --border-strong: var(--q-border-dark-strong);
+
+  --elevation-1: var(--q-elevation-dark-1);
+  --elevation-2: var(--q-elevation-dark-2);
+  --elevation-3: var(--q-elevation-dark-3);
+  --elevation-4: var(--q-elevation-dark-4);
+  --elevation-5: var(--q-elevation-dark-5);
+
+  --accent: var(--q-brand-400);           /* #4076ff reads better on dark than brand-500 */
+  --accent-strong: var(--q-brand-300);
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--q-brand-400) 16%, transparent);
+  --accent-ring: color-mix(in srgb, var(--q-brand-300) 55%, transparent);
+
+  --positive: var(--q-green-400);
+  --negative: var(--q-red-400);
+  --warning: var(--q-yellow-400);
+  --info: var(--q-blue-300);
+  --positive-soft: color-mix(in srgb, var(--q-green-400) 18%, transparent);
+  --negative-soft: color-mix(in srgb, var(--q-red-400) 18%, transparent);
+  --warning-soft: color-mix(in srgb, var(--q-yellow-400) 18%, transparent);
+  --info-soft: color-mix(in srgb, var(--q-blue-300) 18%, transparent);
+
+  --selection: color-mix(in srgb, var(--q-brand-400) 35%, transparent);
+  --scrollbar-thumb: #ffffff26;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --surface-1: var(--q-neutral-00);
+  --surface-2: var(--q-background-light-1);
+  --surface-3: var(--q-background-light-2);
+  --surface-4: var(--q-background-light-3);
+  --surface-inverse: var(--q-background-dark-1);
+
+  --text-primary: var(--q-text-light-primary);
+  --text-secondary: var(--q-text-light-secondary);
+  --text-disabled: var(--q-text-light-disabled);
+  --text-inverse: var(--q-text-dark-primary);
+
+  --fg-primary: var(--q-foreground-light-primary);
+  --fg-secondary: var(--q-foreground-light-secondary);
+  --fg-disabled: var(--q-foreground-light-disabled);
+
+  --border-subtle: var(--q-border-light-subtle);
+  --border-default: var(--q-border-light-default);
+  --border-strong: var(--q-border-light-strong);
+
+  --elevation-1: var(--q-elevation-light-1);
+  --elevation-2: var(--q-elevation-light-2);
+  --elevation-3: var(--q-elevation-light-3);
+  --elevation-4: var(--q-elevation-light-4);
+  --elevation-5: var(--q-elevation-light-5);
+
+  --accent: var(--q-brand-500);
+  --accent-strong: var(--q-brand-600);
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--q-brand-500) 12%, transparent);
+  --accent-ring: color-mix(in srgb, var(--q-brand-500) 45%, transparent);
+
+  --positive: var(--q-green-500);
+  --negative: var(--q-red-500);
+  --warning: var(--q-yellow-600);
+  --info: var(--q-blue-500);
+  --positive-soft: color-mix(in srgb, var(--q-green-500) 14%, transparent);
+  --negative-soft: color-mix(in srgb, var(--q-red-500) 14%, transparent);
+  --warning-soft: color-mix(in srgb, var(--q-yellow-500) 18%, transparent);
+  --info-soft: color-mix(in srgb, var(--q-blue-500) 14%, transparent);
+
+  --selection: color-mix(in srgb, var(--q-brand-500) 25%, transparent);
+  --scrollbar-thumb: #00000026;
+}

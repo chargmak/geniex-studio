@@ -1,0 +1,33 @@
+appId: dev.stama.geniex-studio
+productName: GenieX Studio
+copyright: Copyright © 2026 stama
+directories:
+  buildResources: resources
+  output: release
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asarUnpack:
+  - '**/*.node'
+  - node_modules/better-sqlite3/**
+  - node_modules/node-pty/**
+# No compile toolchain on Windows-on-ARM dev boxes: never node-gyp / @electron/rebuild.
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - arm64
+  icon: resources/icon.ico
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: GenieX Studio
+publish: null

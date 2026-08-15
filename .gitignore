@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+
+# build output
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# logs / local state
+logs/
+*.log
+.launcher/
+data/
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# sidecar (phase 2)
+sidecar/.venv/
+sidecar/models/
+
+.env.local
+.env*.local
+.next/
