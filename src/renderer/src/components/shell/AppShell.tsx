@@ -3,6 +3,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { TopBarSlotProvider, TopBarSlotOutlet } from './topBarSlot'
+import { Onboarding } from './Onboarding'
+import { CommandPalette } from './CommandPalette'
 
 /** Root frame: sidebar · (top bar + routed content). Height-bounded so nested App-UI blocks can scroll internally. */
 export function AppShell(): React.JSX.Element {
@@ -20,6 +22,8 @@ export function AppShell(): React.JSX.Element {
             </main>
           </div>
         </div>
+        <Onboarding />
+        <CommandPalette />
       </TopBarSlotProvider>
     </TooltipProvider>
   )

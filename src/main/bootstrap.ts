@@ -68,6 +68,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
       telemetry: new TelemetryRepo(db),
     },
   }
+  client.recorder = (r) => ctx.repos.telemetry.insert(r)
   ctx.turns = new TurnRunner(ctx)
   ctx.agent = new AgentRunner(ctx)
   void ctx.mcp.connectEnabled().catch(() => {})

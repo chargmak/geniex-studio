@@ -72,7 +72,7 @@ export function ChatView(): React.JSX.Element {
   const composerSettings: ComposerSettings = useMemo(
     () => ({
       enableThink: localSettings.enableThink ?? conversation?.settings.enableThink ?? defaults?.defaults.enableThink ?? true,
-      compute: (localSettings.compute ?? conversation?.settings.options?.compute ?? defaults?.defaults.computeGguf ?? 'hybrid') as ComputeUnit,
+      compute: (localSettings.compute ?? conversation?.settings.options?.compute ?? defaults?.defaults.computeGguf ?? 'npu') as ComputeUnit,
       sampler: localSettings.sampler ?? conversation?.settings.sampler ?? defaults?.defaults.sampler ?? {},
     }),
     [conversation, defaults, localSettings],

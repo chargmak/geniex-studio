@@ -96,3 +96,30 @@ modelRoutes.get('/pulls-events', (c) => {
     await new Promise<void>((resolve) => stream.onAbort(resolve))
   })
 })
+
+// ---------------------------------------------------------------- Hugging Face helper (GGUF quant discovery)
+
+/** Lists GGUF quantisations available in a HF repo so the pull dialog can offer a precision picker (Q4_0 = NPU-friendly). */
+modelRoutes.get('/hf/:repo{.+}', async (c) => {
+  const repo = decodeURIComponent(c.req.param('repo')).replace(/^\/+|\/+$/g, '')
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return c.json({ error: 'repo must look like owner/name' }, 400)
+  try {
+    const res = await fetch(`https://huggingface.co/api/models/${repo}?blobs=true`, { headers: { Accept: 'application/json', ...(process.env.HF_TOKEN ? { Authorization: `Bearer ${process.env.HF_TOKEN}` } : {}) }, signal: AbortSignal.timeout(20_000) })
+    if (res.status === 404) return c.json({ error: 'repository not found' }, 404)
+    if (!res.ok) return c.json({ error: `Hugging Face returned ${res.status}` }, 502)
+    const json = (await res.json()) as { siblings?: { rfilename: string; size?: number }[]; gated?: boolean | string; pipeline_tag?: string; tags?: string[] }
+    const files = (json.siblings ?? []).filter((s) => s.rfilename.toLowerCase().endsWith('.gguf'))
+    const mmproj = files.filter((f) => /mmproj/i.test(f.rfilename))
+    const quants = files
+      .filter((f) => !/mmproj/i.test(f.rfilename))
+      .map((f) => {
+        const m = f.rfilename.match(/[-_.]((?:IQ|Q|BF|F|MXFP)\d[\w]*)(?:-\d+-of-\d+)?\.gguf$/i)
+        return { file: f.rfilename, precision: m ? m[1].toUpperCase() : f.rfilename.replace(/\.gguf$/i, ''), sizeBytes: f.size ?? null, npuEligible: /^Q4_0$/i.test(m?.[1] ?? '') }
+      })
+      .sort((a, b) => Number(b.npuEligible) - Number(a.npuEligible) || (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0))
+    const isVision = mmproj.length > 0 || (json.tags ?? []).some((t) => /image-text|vision|multimodal/i.test(t)) || /VL|vision/i.test(repo)
+    return c.json({ repo, gated: !!json.gated, quants, hasMmproj: mmproj.length > 0, suggestedType: isVision ? 'vlm' : 'llm' })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
+  }
+})

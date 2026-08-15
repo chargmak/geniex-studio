@@ -120,9 +120,24 @@ export function explainRuntimeCrash(model: string | null, code: string): string 
   return `${head} The server has been restarted; try again, a smaller quantisation, or compute "cpu".`
 }
 
+export interface TelemetrySample {
+  model: string
+  compute: string | null
+  ttftMs: number | null
+  totalMs: number | null
+  promptTokens: number | null
+  completionTokens: number | null
+  tokensPerSecond: number | null
+  loadMs: number | null
+  finishReason: string | null
+  conversationId: string | null
+}
+
 export class GenieXClient {
   private gate = new Gate()
   private residentKey: string | null = null
+  /** Set by bootstrap to persist per-request performance samples. */
+  recorder: ((s: TelemetrySample) => void) | null = null
 
   constructor(
     private readonly sup: GenieXSupervisor,
@@ -307,9 +322,10 @@ export class GenieXClient {
 
           // Explicit load when the resident model/options differ so the UI can show a proper "loading" state.
           const key = optionsKey(body.model, body.options, this.serveDefaults())
+          let loadMs: number | null = null
           if (this.residentKey !== key) {
             push({ type: 'model-loading', model: body.model })
-            const loadMs = await this.warmUp(body.model, body.options, signal)
+            loadMs = await this.warmUp(body.model, body.options, signal)
             push({ type: 'model-ready', model: body.model, loadMs })
           }
 
@@ -318,6 +334,7 @@ export class GenieXClient {
           let lastTokenAt: number | null = null
           let completionTokensSeen = 0
           let usageCompletion: number | null = null
+          let usagePrompt: number | null = null
           let finish: string | null = null
           const toolAcc = new Map<number, ChatToolCall>()
 
@@ -343,6 +360,7 @@ export class GenieXClient {
             if (ch?.message?.tool_calls?.length) push({ type: 'tool_calls', tool_calls: ch.message.tool_calls })
             if (json.usage) {
               usageCompletion = json.usage.completion_tokens ?? null
+              usagePrompt = json.usage.prompt_tokens ?? null
               push({
                 type: 'usage',
                 prompt_tokens: json.usage.prompt_tokens ?? 0,
@@ -396,6 +414,7 @@ export class GenieXClient {
               if (choice?.finish_reason) finish = choice.finish_reason
               if (chunk.usage) {
                 usageCompletion = chunk.usage.completion_tokens ?? null
+                usagePrompt = chunk.usage.prompt_tokens ?? null
                 push({
                   type: 'usage',
                   prompt_tokens: chunk.usage.prompt_tokens ?? 0,
@@ -423,14 +442,31 @@ export class GenieXClient {
           this.sup.residentSince = this.sup.residentSince ?? endAt
           const completionTokens = usageCompletion ?? (completionTokensSeen || null)
           const decodeMs = firstTokenAt && lastTokenAt && lastTokenAt > firstTokenAt ? lastTokenAt - firstTokenAt : null
-          push({
-            type: 'done',
+          const doneEv = {
+            type: 'done' as const,
             finish_reason: finish ?? 'stop',
             ttftMs: firstTokenAt ? firstTokenAt - sentAt : null,
             totalMs: endAt - sentAt,
             completionTokens,
             tokensPerSecond: completionTokens && decodeMs && completionTokens > 1 ? ((completionTokens - 1) / decodeMs) * 1000 : null,
-          })
+          }
+          push(doneEv)
+          try {
+            this.recorder?.({
+              model: body.model,
+              compute: body.options?.compute ?? this.serveDefaults().compute ?? null,
+              ttftMs: doneEv.ttftMs,
+              totalMs: doneEv.totalMs,
+              promptTokens: usagePrompt,
+              completionTokens,
+              tokensPerSecond: doneEv.tokensPerSecond,
+              loadMs,
+              finishReason: doneEv.finish_reason,
+              conversationId: body.conversationId ?? null,
+            })
+          } catch {
+            /* telemetry must never break a turn */
+          }
         },
         signal,
         () => this.syncGate(),

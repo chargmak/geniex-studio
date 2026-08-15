@@ -4,11 +4,13 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME } from '@shared/config'
 import { boot, type Booted } from './bootstrap'
 import { registerIpc } from './ipc'
+import { createTray, destroyTray } from './tray'
 
 const HEADLESS = process.argv.includes('--headless')
 
 let mainWindow: BrowserWindow | null = null
 let booted: Booted | null = null
+let quitting = false
 
 // Single instance: a second launch focuses the existing window instead of starting another server.
 if (!app.requestSingleInstanceLock()) {
@@ -52,6 +54,13 @@ function createWindow(url: string): BrowserWindow {
     void shell.openExternal(target)
     return { action: 'deny' }
   })
+  win.on('close', (e) => {
+    if (quitting || HEADLESS) return
+    if (booted?.ctx.settings.get().ui.closeToTray) {
+      e.preventDefault()
+      win.hide()
+    }
+  })
   win.on('closed', () => {
     mainWindow = null
   })
@@ -84,6 +93,16 @@ app.whenReady().then(async () => {
   }
 
   mainWindow = createWindow(server.url)
+  const showWindow = (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(booted!.server.url)
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  createTray(booted, () => mainWindow, showWindow, () => {
+    quitting = true
+    app.quit()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0 && booted) mainWindow = createWindow(booted.server.url)
@@ -91,14 +110,17 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  if (!HEADLESS) app.quit()
+  // With close-to-tray the window is hidden, not closed; only quit when the user really closed it.
+  if (!HEADLESS && !booted?.ctx.settings.get().ui.closeToTray) app.quit()
 })
 
 let shuttingDown = false
 app.on('before-quit', (e) => {
+  quitting = true
   if (shuttingDown || !booted) return
   e.preventDefault()
   shuttingDown = true
+  destroyTray()
   void booted
     .shutdown()
     .catch(() => {})

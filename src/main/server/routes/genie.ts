@@ -99,7 +99,7 @@ genieRoutes.post('/warmup', async (c) => {
 // ---------------------------------------------------------------- chat (SSE proxy)
 
 genieRoutes.post('/chat', async (c) => {
-  const { client, repos, settings } = c.get('ctx')
+  const { client } = c.get('ctx')
   let body: ChatRequestBody
   try {
     body = (await c.req.json()) as ChatRequestBody
@@ -113,26 +113,8 @@ genieRoutes.post('/chat', async (c) => {
     c,
     async (stream) => {
       stream.onAbort(() => abort.abort())
-      let loadMs: number | null = null
-      let usage: { prompt_tokens: number; completion_tokens: number } | null = null
       try {
         for await (const ev of client.chatStream(body, abort.signal)) {
-          if (ev.type === 'model-ready') loadMs = ev.loadMs
-          if (ev.type === 'usage') usage = { prompt_tokens: ev.prompt_tokens, completion_tokens: ev.completion_tokens }
-          if (ev.type === 'done') {
-            repos.telemetry.insert({
-              model: body.model,
-              compute: body.options?.compute ?? settings.get().genie.compute ?? null,
-              ttftMs: ev.ttftMs,
-              totalMs: ev.totalMs,
-              promptTokens: usage?.prompt_tokens ?? null,
-              completionTokens: ev.completionTokens ?? usage?.completion_tokens ?? null,
-              tokensPerSecond: ev.tokensPerSecond,
-              loadMs,
-              finishReason: ev.finish_reason,
-              conversationId: body.conversationId ?? null,
-            })
-          }
           await stream.writeSSE({ data: JSON.stringify(ev) })
         }
       } catch (err) {

@@ -33,7 +33,7 @@ export function ContextMeter({ promptInfo, stream, conversation, modelInfo }: { 
       )}
       {!live && stream?.tokensPerSecond != null && <span className="tabular-nums">{formatNumber(stream.tokensPerSecond)} tok/s</span>}
       <span className="ml-auto flex items-center gap-2 truncate">
-        {modelInfo && <span className="truncate">{modelInfo.runtime === 'qairt' ? 'QAIRT · Hexagon NPU' : `llama.cpp · ${(conversation?.settings.options?.compute ?? 'hybrid').toUpperCase()}`}</span>}
+        {modelInfo && <span className="truncate">{modelInfo.runtime === 'qairt' ? 'QAIRT · Hexagon NPU' : `llama.cpp · ${(conversation?.settings.options?.compute ?? 'npu').toUpperCase()}`}</span>}
       </span>
     </div>
   )

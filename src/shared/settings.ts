@@ -26,7 +26,7 @@ export interface StudioSettings {
     agentModel: string | null
     sampler: Required<Pick<SamplerSettings, 'temperature' | 'top_p' | 'max_tokens'>> & SamplerSettings
     enableThink: boolean
-    /** GGUF: hybrid is the fast path; QAIRT ignores this and runs on the NPU. */
+    /** GGUF compute unit. 'npu' (pinned Hexagon) is the reliable default on X Elite; 'hybrid' is faster per docs but crashed on 4B models here. QAIRT ignores this. */
     computeGguf: ComputeUnit
     systemPrompt: string
     keepCache: boolean
@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     agentModel: null,
     sampler: { temperature: 0.7, top_p: 0.9, max_tokens: 2048 },
     enableThink: true,
-    computeGguf: 'hybrid',
+    computeGguf: 'npu',
     systemPrompt: 'You are a helpful, precise assistant running locally on this device.',
     keepCache: true,
   },

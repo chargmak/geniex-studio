@@ -295,8 +295,8 @@ export function Composer({
                     >
                       <span className="text-[13px] font-medium uppercase text-text-primary">{cu}</span>
                       <span className="text-xs text-text-secondary">
-                        {cu === 'npu' && 'Pinned to the Hexagon NPU (Q4_0 GGUF; deterministic)'}
-                        {cu === 'hybrid' && 'NPU + CPU scheduler — the fast path for GGUF on Snapdragon'}
+                        {cu === 'npu' && 'Pinned to the Hexagon NPU — reliable default (Q4_0 GGUF; deterministic)'}
+                        {cu === 'hybrid' && 'NPU + CPU scheduler — documented as fastest, but experimental: crashed on 4B models with low free RAM here'}
                         {cu === 'gpu' && 'Adreno GPU via OpenCL'}
                         {cu === 'cpu' && 'CPU only'}
                       </span>

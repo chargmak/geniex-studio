@@ -8,6 +8,11 @@ files:
   - out/**
   - package.json
   - '!**/*.map'
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+  - from: resources/tray@2x.png
+    to: tray@2x.png
 asarUnpack:
   - '**/*.node'
   - node_modules/better-sqlite3/**
@@ -21,7 +26,7 @@ win:
     - target: nsis
       arch:
         - arm64
-  icon: resources/icon.ico
+  icon: resources/icon.png
   artifactName: ${productName}-${version}-win-${arch}.${ext}
 nsis:
   oneClick: false
