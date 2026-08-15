@@ -2,14 +2,13 @@ import { app, BrowserWindow, shell, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME } from '@shared/config'
-import { boot } from './bootstrap'
+import { boot, type Booted } from './bootstrap'
 import { registerIpc } from './ipc'
-import type { StudioServer } from './server/app'
 
 const HEADLESS = process.argv.includes('--headless')
 
 let mainWindow: BrowserWindow | null = null
-let server: StudioServer | null = null
+let booted: Booted | null = null
 
 // Single instance: a second launch focuses the existing window instead of starting another server.
 if (!app.requestSingleInstanceLock()) {
@@ -71,13 +70,13 @@ app.whenReady().then(async () => {
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   registerIpc()
 
-  const booted = await boot({
+  booted = await boot({
     mode: 'electron',
     version: app.getVersion(),
     dataDir: app.getPath('userData'),
     rendererDir: is.dev ? undefined : join(__dirname, '../renderer'),
   })
-  server = booted.server
+  const server = booted.server
 
   if (HEADLESS) {
     console.log(`[studio] headless mode — open ${server.url} in a browser`)
@@ -87,7 +86,7 @@ app.whenReady().then(async () => {
   mainWindow = createWindow(server.url)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0 && server) mainWindow = createWindow(server.url)
+    if (BrowserWindow.getAllWindows().length === 0 && booted) mainWindow = createWindow(booted.server.url)
   })
 })
 
@@ -95,6 +94,13 @@ app.on('window-all-closed', () => {
   if (!HEADLESS) app.quit()
 })
 
-app.on('before-quit', () => {
-  void server?.close().catch(() => {})
+let shuttingDown = false
+app.on('before-quit', (e) => {
+  if (shuttingDown || !booted) return
+  e.preventDefault()
+  shuttingDown = true
+  void booted
+    .shutdown()
+    .catch(() => {})
+    .finally(() => app.quit())
 })

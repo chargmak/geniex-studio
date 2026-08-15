@@ -2,6 +2,9 @@ import { serve, type ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { AppContext } from './context'
 import { healthRoutes } from './routes/health'
+import { genieRoutes } from './routes/genie'
+import { modelRoutes } from './routes/models'
+import { settingsRoutes } from './routes/settings'
 import { spaStatic } from './static'
 
 export interface StudioServer {
@@ -27,6 +30,9 @@ export function createApp(ctx: AppContext): Hono {
   })
 
   app.route('/api', healthRoutes)
+  app.route('/api/genie', genieRoutes)
+  app.route('/api/models', modelRoutes)
+  app.route('/api/settings', settingsRoutes)
 
   app.notFound((c) => {
     if (new URL(c.req.url).pathname.startsWith('/api/')) return c.json({ error: 'not found' }, 404)

@@ -17,9 +17,14 @@ boot({
   rendererDir: existsSync(rendererDir) ? rendererDir : undefined,
   host: process.env.GENIEX_STUDIO_HOST,
 })
-  .then(({ server, ctx }) => {
+  .then(({ server, ctx, shutdown }) => {
     if (!ctx.rendererDir) console.log('[studio] renderer not built — API only (run `npm run build` to serve the UI too)')
     console.log(`[studio] open ${server.url}`)
+    const stop = (): void => {
+      void shutdown().finally(() => process.exit(0))
+    }
+    process.on('SIGINT', stop)
+    process.on('SIGTERM', stop)
   })
   .catch((err) => {
     console.error('[studio] failed to start', err)

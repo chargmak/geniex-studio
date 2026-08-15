@@ -41,6 +41,10 @@ export interface GenieServerStatus {
   busy: boolean
   queueDepth: number
   settings: GenieServeSettings
+  /** Last unexpected process exit (e.g. QAIRT access violation while loading a model). */
+  lastCrash: { at: number; code: string; model: string | null } | null
+  /** Models whose load has crashed the server on this machine → UI warns and suggests GGUF alternatives. */
+  crashedModels: Record<string, { count: number; lastAt: number; code: string }>
 }
 
 export interface GenieServeSettings {
@@ -98,6 +102,7 @@ export interface PullJob {
   downloadedBytes: number | null
   totalBytes: number | null
   speedBytesPerSec: number | null
+  etaSeconds: number | null
   message: string
   log: string[]
   startedAt: number

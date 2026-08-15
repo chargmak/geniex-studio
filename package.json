@@ -15,7 +15,7 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
-    "serve": "tsx src/main/server/standalone.ts",
+    "serve": "tsx --tsconfig tsconfig.node.json src/main/server/standalone.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
