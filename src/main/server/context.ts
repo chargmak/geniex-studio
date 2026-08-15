@@ -6,6 +6,9 @@ import type { PullManager } from '../geniex/pulls'
 import type { Database } from '../db'
 import type { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from '../db/repos'
 import type { TurnRunner } from '../chat/turns'
+import type { AgentRunner } from '../agent/loop'
+import type { ApprovalCenter } from '../agent/approvals'
+import type { McpManager } from '../mcp/manager'
 
 /**
  * Everything long-lived that HTTP routes need. Constructed once at boot (Electron main or the headless runner)
@@ -28,6 +31,9 @@ export interface AppContext {
   pulls: PullManager
   db: Database
   turns: TurnRunner
+  agent: AgentRunner
+  approvals: ApprovalCenter
+  mcp: McpManager
   repos: {
     conversations: ConversationRepo
     messages: MessageRepo

@@ -12,6 +12,9 @@ import { PullManager } from './geniex/pulls'
 import { openDatabase } from './db'
 import { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from './db/repos'
 import { TurnRunner } from './chat/turns'
+import { AgentRunner } from './agent/loop'
+import { ApprovalCenter } from './agent/approvals'
+import { McpManager } from './mcp/manager'
 
 export interface BootOptions {
   mode: AppContext['mode']
@@ -55,6 +58,9 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     pulls,
     db,
     turns: null as unknown as TurnRunner,
+    agent: null as unknown as AgentRunner,
+    approvals: new ApprovalCenter(db, settings),
+    mcp: new McpManager(db),
     repos: {
       conversations: new ConversationRepo(db),
       messages: new MessageRepo(db),
@@ -63,6 +69,8 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     },
   }
   ctx.turns = new TurnRunner(ctx)
+  ctx.agent = new AgentRunner(ctx)
+  void ctx.mcp.connectEnabled().catch(() => {})
 
   const port = opts.port ?? Number(process.env.GENIEX_STUDIO_PORT ?? DEFAULT_STUDIO_PORT)
   const server = await startServer(ctx, { host: opts.host, port })
@@ -79,6 +87,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     ctx,
     server,
     shutdown: async () => {
+      await ctx.mcp.shutdown().catch(() => {})
       await pulls.shutdown().catch(() => {})
       await genie.shutdown().catch(() => {})
       await server.close().catch(() => {})

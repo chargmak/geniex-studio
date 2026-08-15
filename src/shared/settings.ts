@@ -34,6 +34,14 @@ export interface StudioSettings {
   workspace: {
     root: string | null
   }
+  agent: {
+    maxTurns: number
+    /** Tool risks that never prompt (default: read-only + network). */
+    autoApproveRisks: ('read' | 'write' | 'exec' | 'network' | 'mcp')[]
+    enabledFamilies: ('fs' | 'shell' | 'web' | 'mcp' | 'vision')[]
+    /** Extra instructions appended to the agent system prompt. */
+    instructions: string
+  }
   ui: {
     theme: 'dark' | 'light'
     closeToTray: boolean
@@ -68,6 +76,12 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     keepCache: true,
   },
   workspace: { root: null },
+  agent: {
+    maxTurns: 12,
+    autoApproveRisks: ['read', 'network'],
+    enabledFamilies: ['fs', 'shell', 'web', 'mcp', 'vision'],
+    instructions: '',
+  },
   ui: { theme: 'dark', closeToTray: true, launchAtLogin: false },
   onboarding: { completed: false },
 }

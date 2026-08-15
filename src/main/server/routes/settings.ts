@@ -46,6 +46,14 @@ const patchSchema = z
       })
       .partial(),
     workspace: z.object({ root: z.string().nullable() }).partial(),
+    agent: z
+      .object({
+        maxTurns: z.number().int().min(1).max(100),
+        autoApproveRisks: z.array(z.enum(['read', 'write', 'exec', 'network', 'mcp'])),
+        enabledFamilies: z.array(z.enum(['fs', 'shell', 'web', 'mcp', 'vision'])),
+        instructions: z.string().max(20_000),
+      })
+      .partial(),
     ui: z.object({ theme: z.enum(['dark', 'light']), closeToTray: z.boolean(), launchAtLogin: z.boolean() }).partial(),
     onboarding: z.object({ completed: z.boolean() }).partial(),
   })

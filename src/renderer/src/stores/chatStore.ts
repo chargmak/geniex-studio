@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ChatStreamEvent, GenieRequestOptions, SamplerSettings } from '@shared/api'
+import type { AgentEvent, ApprovalDecision, ApprovalRequest, RunSummary, ToolRisk } from '@shared/agent'
 import type { Attachment, Conversation, StoredMessage } from '@shared/chat'
 import { api, readSse } from '@/lib/api'
 
@@ -21,6 +22,29 @@ export interface StreamState {
   tokensPerSecond: number | null
   completionTokens: number | null
   error: string | null
+}
+
+export interface LiveToolCall {
+  callId: string
+  tool: string
+  args: Record<string, unknown>
+  summary: string
+  risk: ToolRisk
+  status: 'running' | 'awaiting-approval' | 'done' | 'error' | 'denied'
+  output: string
+  result?: string
+  ok?: boolean
+  durationMs?: number
+  meta?: Record<string, unknown>
+  startedAt: number
+}
+
+export interface AgentLive {
+  run: RunSummary | null
+  turn: number
+  maxTurns: number
+  toolCalls: Record<string, LiveToolCall>
+  pendingApprovals: ApprovalRequest[]
 }
 
 export interface PromptInfo {
@@ -47,6 +71,7 @@ const idleStream = (): StreamState => ({
 
 interface SendOptions {
   text: string
+  mode?: 'chat' | 'agent'
   attachmentIds?: string[]
   model?: string
   sampler?: SamplerSettings
@@ -62,6 +87,7 @@ interface ChatState {
   loadingList: boolean
   loadingMessages: boolean
   streams: Record<string, StreamState>
+  agent: Record<string, AgentLive>
   promptInfo: Record<string, PromptInfo>
   pendingAttachments: Attachment[]
   draft: string
@@ -79,6 +105,8 @@ interface ChatState {
   removePendingAttachment(id: string): Promise<void>
   setDraft(text: string): void
   streamFor(id: string | null): StreamState
+  respondApproval(requestId: string, decision: ApprovalDecision): Promise<void>
+  clearAgent(id: string): void
 }
 
 const controllers = new Map<string, AbortController>()
@@ -90,6 +118,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   loadingList: false,
   loadingMessages: false,
   streams: {},
+  agent: {},
   promptInfo: {},
   pendingAttachments: [],
   draft: '',
@@ -207,19 +236,28 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         return { messages }
       })
 
+    const isAgent = opts.mode === 'agent'
+    const emptyAgent = (): AgentLive => ({ run: null, turn: 0, maxTurns: 0, toolCalls: {}, pendingApprovals: [] })
+    if (isAgent) set((s) => ({ agent: { ...s.agent, [id]: emptyAgent() } }))
+    const patchAgent = (fn: (a: AgentLive) => AgentLive): void => set((s) => ({ agent: { ...s.agent, [id]: fn(s.agent[id] ?? emptyAgent()) } }))
+
     try {
-      const res = await fetch(`/api/conversations/${id}/turns`, {
+      const res = await fetch(isAgent ? '/api/agent/runs' : `/api/conversations/${id}/turns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userText: opts.text,
-          attachmentIds,
-          model: opts.model,
-          sampler: opts.sampler,
-          options: opts.options,
-          regenerate: opts.regenerate,
-          editMessageId: opts.editMessageId,
-        }),
+        body: JSON.stringify(
+          isAgent
+            ? { conversationId: id, userText: opts.text, attachmentIds, model: opts.model, sampler: opts.sampler, options: opts.options }
+            : {
+                userText: opts.text,
+                attachmentIds,
+                model: opts.model,
+                sampler: opts.sampler,
+                options: opts.options,
+                regenerate: opts.regenerate,
+                editMessageId: opts.editMessageId,
+              },
+        ),
         signal: ac.signal,
       })
       if (!res.ok) {
@@ -231,7 +269,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const snap = await api<{ messages: StoredMessage[] }>(`/api/conversations/${id}`)
         if (get().activeId === id) set({ messages: snap.messages })
       }
-      for await (const ev of readSse<TurnEvent>(res, ac.signal)) {
+      for await (const ev of readSse<TurnEvent | AgentEvent>(res, ac.signal)) {
         const cur = get().streams[id] ?? idleStream()
         switch (ev.type) {
           case 'message':
@@ -277,6 +315,48 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           case 'error':
             set((s) => ({ streams: { ...s.streams, [id]: { ...cur, phase: 'done', error: ev.message } }, error: ev.message }))
             break
+          case 'run-start':
+          case 'run-update':
+            patchAgent((a) => ({ ...a, run: ev.run }))
+            break
+          case 'turn':
+            patchAgent((a) => ({ ...a, turn: ev.index, maxTurns: ev.maxTurns }))
+            set((s) => ({ streams: { ...s.streams, [id]: { ...(s.streams[id] ?? idleStream()), content: '', reasoning: '', phase: 'queued', firstTokenAt: null } } }))
+            break
+          case 'tool-call':
+            patchAgent((a) => ({ ...a, toolCalls: { ...a.toolCalls, [ev.callId]: { callId: ev.callId, tool: ev.tool, args: ev.args, summary: ev.summary, risk: ev.risk, status: 'running', output: '', startedAt: Date.now() } } }))
+            break
+          case 'approval-request':
+            patchAgent((a) => {
+              const call = Object.values(a.toolCalls).find((c) => c.tool === ev.request.tool && c.status === 'running')
+              const toolCalls = call ? { ...a.toolCalls, [call.callId]: { ...call, status: 'awaiting-approval' as const } } : a.toolCalls
+              return { ...a, toolCalls, pendingApprovals: [...a.pendingApprovals.filter((r) => r.id !== ev.request.id), ev.request] }
+            })
+            break
+          case 'approval-decision':
+            patchAgent((a) => {
+              const toolCalls = { ...a.toolCalls }
+              for (const c of Object.values(toolCalls)) if (c.status === 'awaiting-approval') toolCalls[c.callId] = { ...c, status: ev.decision === 'deny' ? 'denied' : 'running' }
+              return { ...a, pendingApprovals: a.pendingApprovals.filter((r) => r.id !== ev.requestId), toolCalls }
+            })
+            break
+          case 'tool-output':
+            patchAgent((a) => {
+              const c = a.toolCalls[ev.callId]
+              return c ? { ...a, toolCalls: { ...a.toolCalls, [ev.callId]: { ...c, output: (c.output + ev.chunk).slice(-20_000) } } } : a
+            })
+            break
+          case 'tool-result':
+            patchAgent((a) => {
+              const c = a.toolCalls[ev.callId]
+              const status: LiveToolCall['status'] = c?.status === 'denied' ? 'denied' : ev.ok ? 'done' : 'error'
+              const base: LiveToolCall = c ?? { callId: ev.callId, tool: ev.tool, args: {}, summary: ev.tool, risk: 'read', status: 'running', output: '', startedAt: Date.now() }
+              return { ...a, toolCalls: { ...a.toolCalls, [ev.callId]: { ...base, status, result: ev.content, ok: ev.ok, durationMs: ev.durationMs, meta: ev.meta } } }
+            })
+            break
+          case 'run-done':
+            patchAgent((a) => ({ ...a, run: ev.run, pendingApprovals: [] }))
+            break
         }
       }
     } catch (err) {
@@ -302,6 +382,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       void get().loadConversations()
     }
   },
+
+  respondApproval: async (requestId, decision) => {
+    await api(`/api/agent/approvals/${requestId}`, { method: 'POST', json: { decision } })
+    set((s) => {
+      const agent = { ...s.agent }
+      for (const [cid, a] of Object.entries(agent)) agent[cid] = { ...a, pendingApprovals: a.pendingApprovals.filter((r) => r.id !== requestId) }
+      return { agent }
+    })
+  },
+
+  clearAgent: (id) =>
+    set((s) => {
+      const agent = { ...s.agent }
+      delete agent[id]
+      return { agent }
+    }),
 
   stop: async (id) => {
     const target = id ?? get().activeId

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Brain, ImagePlus, Paperclip, SlidersHorizontal, Square, X, Zap } from 'lucide-react'
+import { ArrowUp, Bot, Brain, FolderOpen, ImagePlus, MessageSquare, Paperclip, SlidersHorizontal, Square, X, Zap } from 'lucide-react'
 import type { ComputeUnit } from '@shared/config'
 import type { Attachment } from '@shared/chat'
 import type { CachedModel, SamplerSettings } from '@shared/api'
@@ -45,6 +45,10 @@ export function Composer({
   editing,
   onCancelEdit,
   disabledReason,
+  mode,
+  onModeChange,
+  workspaceRoot,
+  onPickWorkspace,
 }: {
   model: string | null
   modelInfo: CachedModel | undefined
@@ -64,6 +68,10 @@ export function Composer({
   editing: { id: string; preview: string } | null
   onCancelEdit: () => void
   disabledReason?: string | null
+  mode: 'chat' | 'agent'
+  onModeChange: (m: 'chat' | 'agent') => void
+  workspaceRoot: string | null
+  onPickWorkspace: () => void
 }): React.JSX.Element {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -228,14 +236,33 @@ export function Composer({
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             rows={1}
-            placeholder={disabledReason ?? (isVlm ? 'Ask anything, or drop an image…' : 'Ask anything… (type / for commands)')}
+            placeholder={disabledReason ?? (mode === 'agent' ? 'Describe a task — the agent can read/write files, run PowerShell, search the web…' : isVlm ? 'Ask anything, or drop an image…' : 'Ask anything… (type / for commands)')}
             disabled={!!disabledReason}
             className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 body-md text-text-primary outline-none placeholder:text-text-disabled disabled:cursor-not-allowed"
             aria-label="Message"
           />
 
           <div className="flex items-center gap-1 px-2 pb-2">
+            <div className="mr-1 flex h-8 items-center rounded-sm bg-surface-3 p-0.5 hairline-subtle" role="tablist" aria-label="Mode">
+              <button type="button" role="tab" aria-selected={mode === 'chat'} onClick={() => onModeChange('chat')} className={cn('flex h-7 items-center gap-1 rounded-xs px-2 text-xs', mode === 'chat' ? 'bg-surface-1 text-text-primary shadow-1' : 'text-text-secondary hover:text-text-primary')}>
+                <MessageSquare className="size-3.5" /> Chat
+              </button>
+              <button type="button" role="tab" aria-selected={mode === 'agent'} onClick={() => onModeChange('agent')} className={cn('flex h-7 items-center gap-1 rounded-xs px-2 text-xs', mode === 'agent' ? 'bg-surface-1 text-accent-brand shadow-1' : 'text-text-secondary hover:text-text-primary')}>
+                <Bot className="size-3.5" /> Agent
+              </button>
+            </div>
             <ModelPicker value={model} onChange={onModelChange} compact />
+            {mode === 'agent' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" onClick={onPickWorkspace} className="inline-flex h-8 max-w-56 items-center gap-1.5 rounded-sm px-2 text-[13px] text-text-secondary hover:bg-surface-3">
+                    <FolderOpen className="size-3.5" />
+                    <span className="truncate">{workspaceRoot ? workspaceRoot.split(/[\\/]/).pop() : 'Pick workspace'}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Workspace folder the agent can read/write: {workspaceRoot ?? 'default'}</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

@@ -28,6 +28,8 @@ export function ChatView(): React.JSX.Element {
   const removePendingAttachment = useChatStore((s) => s.removePendingAttachment)
   const updateConversation = useChatStore((s) => s.updateConversation)
   const storeError = useChatStore((s) => s.error)
+  const agentLive = useChatStore((s) => (s.activeId ? (s.agent[s.activeId] ?? null) : null))
+  const respondApproval = useChatStore((s) => s.respondApproval)
 
   const installed = useModelsStore((s) => s.installed)
   const findModel = useModelsStore((s) => s.find)
@@ -41,10 +43,29 @@ export function ChatView(): React.JSX.Element {
   // Model + per-conversation settings (fall back to Studio defaults for a not-yet-created chat).
   const [localModel, setLocalModel] = useState<string | null>(null)
   const [localSettings, setLocalSettings] = useState<Partial<ComposerSettings>>({})
+  const [localMode, setLocalMode] = useState<'chat' | 'agent' | null>(null)
   useEffect(() => {
     setLocalModel(null)
     setLocalSettings({})
+    setLocalMode(null)
   }, [activeId])
+  const mode: 'chat' | 'agent' = localMode ?? conversation?.mode ?? 'chat'
+  const workspaceRoot = conversation?.workspaceRoot ?? defaults?.workspace.root ?? null
+  const onModeChange = useCallback(
+    (m: 'chat' | 'agent') => {
+      setLocalMode(m)
+      if (activeId) void updateConversation(activeId, { mode: m })
+    },
+    [activeId, updateConversation],
+  )
+  const onPickWorkspace = useCallback(async () => {
+    if (!window.studio?.showOpenDialog) return
+    const paths = await window.studio.showOpenDialog({ title: 'Choose the agent workspace folder', properties: ['openDirectory'] })
+    if (!paths[0]) return
+    if (activeId) await updateConversation(activeId, { workspaceRoot: paths[0] })
+    else await api('/api/settings', { method: 'PATCH', json: { workspace: { root: paths[0] } } })
+    setDefaults((d) => (d ? { ...d, workspace: { ...d.workspace, root: paths[0] } } : d))
+  }, [activeId, updateConversation])
 
   const model = localModel ?? conversation?.model ?? defaults?.defaults.chatModel ?? installed[0]?.requestIds[0] ?? null
   const modelInfo = findModel(model)
@@ -79,17 +100,17 @@ export function ChatView(): React.JSX.Element {
     [activeId, updateConversation],
   )
 
-  const busy = !!stream && stream.phase !== 'done' && stream.phase !== 'idle'
+  const busy = (!!stream && stream.phase !== 'done' && stream.phase !== 'idle') || !!(agentLive?.run && (agentLive.run.status === 'running' || agentLive.run.status === 'waiting_approval'))
   const [editing, setEditing] = useState<{ id: string; preview: string } | null>(null)
   const draftBeforeEdit = useRef<string>('')
 
   const doSend = useCallback(
     (text: string) => {
       const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute } : {}) }
-      void send({ text, model: model ?? undefined, sampler: composerSettings.sampler, options, editMessageId: editing?.id })
+      void send({ text, mode, model: model ?? undefined, sampler: composerSettings.sampler, options, editMessageId: editing?.id })
       if (editing) setEditing(null)
     },
-    [composerSettings, editing, model, modelInfo?.runtime, send],
+    [composerSettings, editing, mode, model, modelInfo?.runtime, send],
   )
 
   const onRegenerate = useCallback(() => {
@@ -179,8 +200,10 @@ export function ChatView(): React.JSX.Element {
         <MessageList
           messages={messages}
           stream={stream}
+          agent={agentLive}
           onEdit={onEdit}
           onRegenerate={onRegenerate}
+          onDecide={(r, d) => respondApproval(r.id, d)}
           header={promptInfo && promptInfo.droppedHistory > 0 ? <div className="mb-3 rounded-md bg-surface-2 px-3 py-1.5 text-center text-xs text-text-secondary hairline-subtle">{promptInfo.droppedHistory} older message(s) were left out to fit the model's context window.</div> : null}
         />
       )}
@@ -207,6 +230,10 @@ export function ChatView(): React.JSX.Element {
           setDraft(draftBeforeEdit.current)
         }}
         disabledReason={disabledReason}
+        mode={mode}
+        onModeChange={onModeChange}
+        workspaceRoot={workspaceRoot}
+        onPickWorkspace={() => void onPickWorkspace()}
       />
     </div>
   )
