@@ -16,6 +16,8 @@ extraResources:
       - '!.venv/**'
       - '!models/**'
       - '!__pycache__/**'
+      - '!**/__pycache__/**'
+      - '!tests/**'
   - from: resources/tray.png
     to: tray.png
   - from: resources/tray@2x.png

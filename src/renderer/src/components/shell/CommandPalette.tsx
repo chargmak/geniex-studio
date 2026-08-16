@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Bot, Boxes, Cpu, MessageSquare, Moon, Play, RefreshCw, Search, Settings, Square, Sun } from 'lucide-react'
+import { Bot, Boxes, Cpu, MessageSquare, Moon, Play, RefreshCw, Search, Settings, Square, Sun, ImageIcon, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/uiStore'
 import { useServerStore } from '@/stores/serverStore'
@@ -59,6 +59,8 @@ export function CommandPalette(): React.JSX.Element | null {
       { id: 'new-agent', label: 'New agent task', icon: Bot, keywords: 'tools run', run: async () => navigate(`/chat/${(await createConversation({ mode: 'agent' })).id}`) },
       { id: 'go-chat', label: 'Go to Chat', icon: MessageSquare, run: () => navigate('/chat') },
       { id: 'go-agents', label: 'Go to Agents', icon: Bot, run: () => navigate('/agents') },
+      { id: 'go-studio', label: 'Go to Studio', icon: ImageIcon, keywords: 'image generation stable diffusion sidecar npu tts whisper', run: () => navigate('/studio') },
+      { id: 'go-knowledge', label: 'Go to Knowledge', icon: BookOpen, keywords: 'rag documents index embeddings citations', run: () => navigate('/knowledge') },
       { id: 'go-models', label: 'Go to Models', icon: Boxes, run: () => navigate('/models') },
       { id: 'go-system', label: 'Go to System', icon: Cpu, run: () => navigate('/system') },
       { id: 'go-settings', label: 'Go to Settings', icon: Settings, run: () => navigate('/settings') },
