@@ -69,6 +69,37 @@ function StatTile({ icon: Icon, label, value, unit, sub, series, tone }: { icon:
   )
 }
 
+
+/**
+ * Forgetting the crash history re-arms models that took the runtime down, so it asks twice.
+ * Only worth doing after an NPU / Compute-DSP driver update (or a GenieX release that fixes #1154).
+ */
+function ClearCrashesButton({ onCleared }: { onCleared: () => void }): React.JSX.Element {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 10_000)
+    return () => clearTimeout(t)
+  }, [armed])
+  if (!armed)
+    return (
+      <Button size="xs" variant="secondary" onClick={() => setArmed(true)}>
+        Clear after driver update
+      </Button>
+    )
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="text-text-secondary">Only if the driver changed — these models will be auto-selectable again.</span>
+      <Button size="xs" variant="destructive" onClick={() => void api('/api/genie/crashes/clear', { method: 'POST', json: {} }).then(() => { setArmed(false); onCleared() })}>
+        Clear history
+      </Button>
+      <Button size="xs" variant="ghost" onClick={() => setArmed(false)}>
+        Cancel
+      </Button>
+    </span>
+  )
+}
+
 export function SystemPage(): React.JSX.Element {
   const genie = useServerStore((s) => s.genie)
   const studio = useServerStore((s) => s.studio)
@@ -215,13 +246,7 @@ export function SystemPage(): React.JSX.Element {
             </ul>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-text-secondary">Remembered across restarts — new chats never auto-select these. You can still pick one by hand.</span>
-              <Button
-                size="xs"
-                variant="secondary"
-                onClick={() => void api('/api/genie/crashes/clear', { method: 'POST', json: {} }).then(() => refresh())}
-              >
-                Clear after driver update
-              </Button>
+              <ClearCrashesButton onCleared={refresh} />
             </div>
           </div>
         )}
