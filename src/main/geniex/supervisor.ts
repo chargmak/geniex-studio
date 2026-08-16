@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events'
+import { dirname } from 'node:path'
+import { CrashLog } from './crashLog'
 import type { ChildProcess } from 'node:child_process'
 import type { GenieServerState, GenieServerStatus, GenieServeSettings } from '@shared/api'
 import type { SettingsStore } from '../settings'
@@ -50,13 +52,28 @@ export class GenieXSupervisor extends EventEmitter {
   queueDepth = 0
   /** Model a request is currently loading/using — attributed to a crash if the process dies mid-request. */
   activeModel: string | null = null
-  /** Crash bookkeeping: models whose load killed the server (GenieX issue #1154 on some X Elite systems). */
+  /** Crash bookkeeping: models whose load killed the server (GenieX issue #1154 on some X Elite systems).
+   *  Backed by `runtime-crashes.json` so the app does not re-select a known-fatal model after a restart. */
+  readonly crashLog: CrashLog
   readonly crashedModels = new Map<string, { count: number; lastAt: number; code: string }>()
   lastCrash: { at: number; code: string; model: string | null } | null = null
 
-  constructor(private readonly settings: SettingsStore) {
+  constructor(
+    private readonly settings: SettingsStore,
+    dataDir: string = dirname(settings.file),
+  ) {
     super()
+    this.crashLog = new CrashLog(dataDir)
+    for (const [name, rec] of this.crashLog.entries()) this.crashedModels.set(name, rec)
     settings.on('change', () => void this.probeCli(true))
+  }
+
+  /** Forget crash history (one model or all) — e.g. after an NPU driver update. */
+  clearCrashes(model?: string): void {
+    this.crashLog.clear(model)
+    if (model) this.crashedModels.delete(model)
+    else this.crashedModels.clear()
+    this.emit('status')
   }
 
   // ------------------------------------------------------------ info
@@ -211,8 +228,7 @@ export class GenieXSupervisor extends EventEmitter {
         const codeStr = code != null ? (code > 0x7fffffff || code < 0 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code)) : (signal ?? '?')
         this.lastCrash = { at: Date.now(), code: codeStr, model: this.activeModel }
         if (this.activeModel) {
-          const prev = this.crashedModels.get(this.activeModel)
-          this.crashedModels.set(this.activeModel, { count: (prev?.count ?? 0) + 1, lastAt: Date.now(), code: codeStr })
+          this.crashedModels.set(this.activeModel, this.crashLog.record(this.activeModel, codeStr))
           this.log('studio', `runtime crash attributed to model ${this.activeModel} (${codeStr})`)
         }
         this.residentModel = null

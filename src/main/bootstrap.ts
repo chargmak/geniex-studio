@@ -43,7 +43,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
   mkdirSync(join(dataDir, 'attachments'), { recursive: true })
 
   const settings = new SettingsStore(dataDir)
-  const genie = new GenieXSupervisor(settings)
+  const genie = new GenieXSupervisor(settings, dataDir)
   const client = new GenieXClient(genie, settings)
   const models = new ModelManager(genie)
   const pulls = new PullManager(genie, models)

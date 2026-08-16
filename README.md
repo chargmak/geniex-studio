@@ -89,7 +89,8 @@ Source-verified (docs, `qualcomm/GenieX` source, issues) — see `docs/research/
 
 ### Runtime findings on this machine (X1E80100, NPU driver 30.0.220.3000)
 
-- **AI Hub QAIRT bundles (`qualcomm/*`) crash the runtime on load** (`0xC0000005` after `DSP_INFO UNSUPPORTED_KEY`) — matches open GenieX issue [#1154](https://github.com/qualcomm/GenieX/issues/1154). Studio attributes the crash, restarts the server, and points at GGUF Q4_0 instead. If a future driver / GenieX release fixes it, the catalogue works unchanged.
+- **AI Hub QAIRT bundles (`qualcomm/*`) crash the runtime on load** (`0xC0000005` after `DSP_INFO UNSUPPORTED_KEY`) — matches open GenieX issue [#1154](https://github.com/qualcomm/GenieX/issues/1154). Studio attributes the crash to the model, restarts the server, and **remembers it in `runtime-crashes.json`**, so new chats never auto-select it again (the picker still lets you choose it by hand, with a warning). Because the failure is runtime-wide rather than per-model, one QAIRT crash also makes the app stop auto-selecting *any* QAIRT bundle. System page → *Clear after driver update* forgets the history so the catalogue becomes usable again.
+- `geniex list` happens to return QAIRT bundles first, so "just take the first installed model" is a trap on affected devices: model auto-selection goes through `pickAutoModel` (preference → healthy models, larger NPU-eligible first → least-crashed as a last resort).
 - **GGUF Q4_0 on `compute: npu` is reliable**: Qwen3-0.6B ≈70 tok/s decode / 73 ms TTFT; Qwen3-4B ≈14 tok/s / 0.38 s TTFT / 7 s load.
 - **`hybrid` is faster per docs but crashed with Qwen3-4B here** → the default GGUF compute is `npu`; hybrid stays selectable (marked experimental).
 - No Windows performance counter set exists for the NPU on this machine, so the System page reports it honestly and leans on measured tok/s.

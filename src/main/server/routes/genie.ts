@@ -43,6 +43,13 @@ genieRoutes.post('/probe-cli', async (c) => {
   return c.json(genie.status())
 })
 
+genieRoutes.post('/crashes/clear', async (c) => {
+  const { genie } = c.get('ctx')
+  const body = (await c.req.json().catch(() => ({}))) as { model?: string }
+  genie.clearCrashes(body.model)
+  return c.json({ ok: true, crashedModels: genie.status().crashedModels })
+})
+
 genieRoutes.get('/logs', (c) => {
   const { genie } = c.get('ctx')
   const limit = Number(c.req.query('limit') ?? 300)

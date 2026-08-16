@@ -286,8 +286,7 @@ export class GenieXClient {
       const code = recent ? crash!.code : 'connection lost'
       if (!recent) {
         // Attribute the loss to this model even if the exit event hasn't fired yet.
-        const prev = this.sup.crashedModels.get(model)
-        this.sup.crashedModels.set(model, { count: (prev?.count ?? 0) + 1, lastAt: Date.now(), code })
+        this.sup.crashedModels.set(model, this.sup.crashLog.record(model, code))
       }
       return new GenieXHttpError(explainRuntimeCrash(model, code), 502, 'runtime_crash')
     }

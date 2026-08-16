@@ -4,6 +4,7 @@ import type { KnowledgeHit } from '@shared/sidecar'
 import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from './prompt'
+import { pickAutoModel } from '../geniex/select'
 
 export interface TurnRequest {
   conversationId: string
@@ -74,15 +75,17 @@ export class TurnRunner {
       // ---------------------------------------------------------- resolve model
       const installed = await models.list().catch(() => [])
       const s = settings.get()
-      let model = req.model ?? conv0.model ?? s.defaults.chatModel ?? installed[0]?.requestIds[0] ?? null
+      const crashed = this.ctx.genie.crashLog.all()
+      // Never auto-walk into a model that already killed the runtime here (see pickAutoModel / issue #1154).
+      let model = req.model ?? conv0.model ?? pickAutoModel(installed, { crashed, preferred: s.defaults.chatModel })
       if (!model) {
         yield { type: 'error', message: 'No model available. Pull a model from the Models page first.', status: 400 }
         return
       }
       const info = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
       if (!info && installed.length) {
-        // A stale saved model — fall back to the first installed one and persist.
-        model = s.defaults.chatModel && installed.some((m) => m.requestIds.includes(s.defaults.chatModel!)) ? s.defaults.chatModel : installed[0].requestIds[0]
+        // A stale saved model — fall back to the best healthy one and persist.
+        model = pickAutoModel(installed, { crashed, preferred: s.defaults.chatModel }) ?? model
       }
       const modelInfo = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
       const isVlm = modelInfo?.type === 'vlm'

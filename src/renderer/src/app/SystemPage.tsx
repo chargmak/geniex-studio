@@ -213,6 +213,16 @@ export function SystemPage(): React.JSX.Element {
                 </li>
               ))}
             </ul>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-text-secondary">Remembered across restarts — new chats never auto-select these. You can still pick one by hand.</span>
+              <Button
+                size="xs"
+                variant="secondary"
+                onClick={() => void api('/api/genie/crashes/clear', { method: 'POST', json: {} }).then(() => refresh())}
+              >
+                Clear after driver update
+              </Button>
+            </div>
           </div>
         )}
       </div>

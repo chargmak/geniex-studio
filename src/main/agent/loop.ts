@@ -10,6 +10,7 @@ import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from '../chat/prompt'
 import { buildToolset } from './registry'
+import { pickAutoModel } from '../geniex/select'
 import { toChatTool, type Tool } from './tools/types'
 
 export interface AgentRunRequest {
@@ -157,13 +158,14 @@ export class AgentRunner {
     const workspaceRoot = conv0.workspaceRoot ?? s.workspace.root ?? defaultWorkspaceRoot()
     mkdirSync(workspaceRoot, { recursive: true })
     const installed = await models.list().catch(() => [])
-    let model = req.model ?? conv0.model ?? s.defaults.agentModel ?? s.defaults.chatModel ?? installed[0]?.requestIds[0] ?? null
+    const crashed = this.ctx.genie.crashLog.all()
+    let model = req.model ?? conv0.model ?? pickAutoModel(installed, { crashed, preferred: s.defaults.agentModel ?? s.defaults.chatModel })
     if (!model) {
       yield { type: 'error', message: 'No model available. Pull a model first.', status: 400 }
       return
     }
     const info = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
-    if (!info && installed.length) model = installed[0].requestIds[0]
+    if (!info && installed.length) model = pickAutoModel(installed, { crashed, preferred: s.defaults.agentModel ?? s.defaults.chatModel }) ?? model
     const modelInfo = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
     const isQairt = modelInfo?.runtime === 'qairt'
     const isVlm = modelInfo?.type === 'vlm'
