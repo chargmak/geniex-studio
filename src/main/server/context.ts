@@ -9,6 +9,7 @@ import type { TurnRunner } from '../chat/turns'
 import type { AgentRunner } from '../agent/loop'
 import type { ApprovalCenter } from '../agent/approvals'
 import type { McpManager } from '../mcp/manager'
+import type { SidecarSupervisor } from '../sidecar/supervisor'
 
 /**
  * Everything long-lived that HTTP routes need. Constructed once at boot (Electron main or the headless runner)
@@ -34,6 +35,7 @@ export interface AppContext {
   agent: AgentRunner
   approvals: ApprovalCenter
   mcp: McpManager
+  sidecar: SidecarSupervisor
   repos: {
     conversations: ConversationRepo
     messages: MessageRepo

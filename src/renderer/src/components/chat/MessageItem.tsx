@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Markdown } from './Markdown'
 import { ThinkingFold } from './ThinkingFold'
 import { useSmoothedReveal } from '@/hooks/useSmoothedReveal'
+import { SpeakButton } from './SpeakButton'
 import type { StreamState } from '@/stores/chatStore'
 
 function contentText(m: StoredMessage): string {
@@ -135,6 +136,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         {!live && (
           <div className="mt-1 flex h-7 items-center gap-0.5 text-text-secondary opacity-0 transition-opacity group-hover/msg:opacity-100">
             <CopyAction text={rawContent} />
+            {rawContent && <SpeakButton text={rawContent} />}
             {isLast && onRegenerate && (
               <IconAction label="Regenerate" onClick={onRegenerate}>
                 <RefreshCw className="size-3.5" />

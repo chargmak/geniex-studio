@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 const TITLES: Record<string, string> = {
   chat: 'Chat',
   agents: 'Agents',
+  studio: 'Studio',
   models: 'Models',
   system: 'System',
   settings: 'Settings',

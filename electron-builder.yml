@@ -9,6 +9,13 @@ files:
   - package.json
   - '!**/*.map'
 extraResources:
+  - from: sidecar
+    to: sidecar
+    filter:
+      - '**/*'
+      - '!.venv/**'
+      - '!models/**'
+      - '!__pycache__/**'
   - from: resources/tray.png
     to: tray.png
   - from: resources/tray@2x.png

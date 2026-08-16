@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ModelPicker } from './ModelPicker'
+import { MicButton } from './MicButton'
 
 const MAX_H = 220
 
@@ -314,6 +315,7 @@ export function Composer({
             )}
             <SamplerPopover sampler={settings.sampler} onChange={(sampler) => onSettingsChange({ sampler })} />
             <div className="ml-auto flex items-center gap-1">
+              <MicButton disabled={busy} onText={(t) => onDraftChange(draft ? `${draft.trimEnd()} ${t}` : t)} />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="iconSm" onClick={onPickFiles} aria-label="Attach image or file">

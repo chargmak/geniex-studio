@@ -9,6 +9,7 @@ import { conversationRoutes } from './routes/conversations'
 import { attachmentRoutes } from './routes/attachments'
 import { agentRoutes } from './routes/agent'
 import { systemRoutes } from './routes/system'
+import { sidecarRoutes } from './routes/sidecar'
 import { spaStatic } from './static'
 
 export interface StudioServer {
@@ -41,6 +42,7 @@ export function createApp(ctx: AppContext): Hono {
   app.route('/api/attachments', attachmentRoutes)
   app.route('/api/agent', agentRoutes)
   app.route('/api/system', systemRoutes)
+  app.route('/api/sidecar', sidecarRoutes)
 
   app.notFound((c) => {
     if (new URL(c.req.url).pathname.startsWith('/api/')) return c.json({ error: 'not found' }, 404)

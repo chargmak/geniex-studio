@@ -1,0 +1,15 @@
+# GenieX Studio — NPU media sidecar (Windows ARM64, CPython 3.12/3.13)
+# All packages below publish win_arm64 wheels or are pure Python.
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+numpy>=2.0
+pillow>=10.4
+soundfile>=0.12
+huggingface_hub>=0.24
+requests>=2.32
+# Qualcomm runtimes
+qai-appbuilder>=2.48
+onnxruntime-qnn>=2.3
+# tokenizers for CLIP / Whisper (Rust wheels, win_arm64 available)
+tokenizers>=0.20

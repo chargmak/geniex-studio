@@ -15,6 +15,7 @@ import { TurnRunner } from './chat/turns'
 import { AgentRunner } from './agent/loop'
 import { ApprovalCenter } from './agent/approvals'
 import { McpManager } from './mcp/manager'
+import { SidecarSupervisor } from './sidecar/supervisor'
 
 export interface BootOptions {
   mode: AppContext['mode']
@@ -24,6 +25,8 @@ export interface BootOptions {
   rendererDir?: string
   port?: number
   host?: string
+  /** Directory holding the Python sidecar sources (server.py, engines/, requirements.txt). */
+  sidecarSourceDir: string
 }
 
 export interface Booted {
@@ -61,6 +64,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     agent: null as unknown as AgentRunner,
     approvals: new ApprovalCenter(db, settings),
     mcp: new McpManager(db),
+    sidecar: new SidecarSupervisor({ sourceDir: opts.sidecarSourceDir, home: join(dataDir, 'sidecar') }),
     repos: {
       conversations: new ConversationRepo(db),
       messages: new MessageRepo(db),
@@ -88,6 +92,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     ctx,
     server,
     shutdown: async () => {
+      await ctx.sidecar.shutdown().catch(() => {})
       await ctx.mcp.shutdown().catch(() => {})
       await pulls.shutdown().catch(() => {})
       await genie.shutdown().catch(() => {})

@@ -124,4 +124,52 @@ export const MIGRATIONS: { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS generations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL DEFAULT 'image',         -- image | audio
+        prompt TEXT,
+        negative_prompt TEXT,
+        model TEXT,
+        width INTEGER,
+        height INTEGER,
+        steps INTEGER,
+        seed INTEGER,
+        guidance REAL,
+        path TEXT NOT NULL,                          -- absolute file path under dataDir/generated
+        duration_ms REAL,
+        meta_json TEXT,
+        conversation_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS knowledge_sources (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,                          -- folder | file
+        path TEXT NOT NULL,
+        files INTEGER NOT NULL DEFAULT 0,
+        chunks INTEGER NOT NULL DEFAULT 0,
+        embed_model TEXT,
+        status TEXT NOT NULL DEFAULT 'idle',         -- idle | indexing | ready | error
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+        file TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        embedding BLOB,                              -- Float32Array bytes
+        dims INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chunks_source ON knowledge_chunks(source_id);
+    `,
+  },
 ]

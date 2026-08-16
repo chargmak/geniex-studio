@@ -85,6 +85,7 @@ app.whenReady().then(async () => {
     dataDir: app.getPath('userData'),
     // Only the electron-vite dev server sets ELECTRON_RENDERER_URL; preview and packaged builds serve out/renderer.
     rendererDir: process.env['ELECTRON_RENDERER_URL'] ? undefined : join(__dirname, '../renderer'),
+    sidecarSourceDir: app.isPackaged ? join(process.resourcesPath, 'sidecar') : join(app.getAppPath(), 'sidecar'),
   })
   const server = booted.server
 

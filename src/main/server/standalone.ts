@@ -16,6 +16,7 @@ boot({
   version: pkg.version,
   rendererDir: existsSync(rendererDir) ? rendererDir : undefined,
   host: process.env.GENIEX_STUDIO_HOST,
+  sidecarSourceDir: join(root, 'sidecar'),
 })
   .then(({ server, ctx, shutdown }) => {
     if (!ctx.rendererDir) console.log('[studio] renderer not built — API only (run `npm run build` to serve the UI too)')
