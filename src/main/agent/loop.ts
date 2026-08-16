@@ -35,27 +35,36 @@ function agentInstructions(workspaceRoot: string, tools: Tool[], extra: string):
     .join('\n\n')
 }
 
-/** Try hard to turn model-produced argument text into an object. */
+/** Try hard to turn model-produced argument text into an object. Repairs are cumulative (fence → commas → quotes → keys). */
 export function parseToolArgs(raw: string | undefined | null): { args: Record<string, unknown>; repaired: boolean; error?: string } {
   if (!raw || !raw.trim()) return { args: {}, repaired: false }
-  const attempts = [raw, raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, ''), raw.replace(/,\s*([}\]])/g, '$1'), raw.replace(/'/g, '"'), raw.replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":')]
-  for (let i = 0; i < attempts.length; i++) {
+  const tryParse = (text: string): Record<string, unknown> | null => {
     try {
-      const v = JSON.parse(attempts[i]) as unknown
-      if (v && typeof v === 'object' && !Array.isArray(v)) return { args: v as Record<string, unknown>, repaired: i > 0 }
+      const v = JSON.parse(text) as unknown
+      return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
     } catch {
-      /* next */
+      return null
     }
   }
-  // Salvage the first {...} block
-  const m = raw.match(/\{[\s\S]*\}/)
+  const direct = tryParse(raw)
+  if (direct) return { args: direct, repaired: false }
+  const steps: ((t: string) => string)[] = [
+    (t) => t.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim(),
+    (t) => t.replace(/,\s*([}\]])/g, '$1'),
+    (t) => t.replace(/'/g, '"'),
+    (t) => t.replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":'),
+  ]
+  let cur = raw
+  for (const step of steps) {
+    cur = step(cur)
+    const v = tryParse(cur)
+    if (v) return { args: v, repaired: true }
+  }
+  // Salvage the first {...} block from the repaired text
+  const m = cur.match(/\{[\s\S]*\}/)
   if (m) {
-    try {
-      const v = JSON.parse(m[0]) as Record<string, unknown>
-      return { args: v, repaired: true }
-    } catch {
-      /* fallthrough */
-    }
+    const v = tryParse(m[0])
+    if (v) return { args: v, repaired: true }
   }
   return { args: {}, repaired: false, error: 'arguments were not valid JSON' }
 }

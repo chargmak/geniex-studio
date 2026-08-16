@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell, nativeTheme } from 'electron'
 import { join } from 'node:path'
-import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME } from '@shared/config'
 import { boot, type Booted } from './bootstrap'
 import { registerIpc } from './ipc'
@@ -66,7 +66,7 @@ function createWindow(url: string): BrowserWindow {
   })
 
   // In dev the renderer comes from Vite (HMR); its /api calls are proxied to our server (see electron.vite.config.ts).
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     void win.loadURL(url)
@@ -83,7 +83,8 @@ app.whenReady().then(async () => {
     mode: 'electron',
     version: app.getVersion(),
     dataDir: app.getPath('userData'),
-    rendererDir: is.dev ? undefined : join(__dirname, '../renderer'),
+    // Only the electron-vite dev server sets ELECTRON_RENDERER_URL; preview and packaged builds serve out/renderer.
+    rendererDir: process.env['ELECTRON_RENDERER_URL'] ? undefined : join(__dirname, '../renderer'),
   })
   const server = booted.server
 
