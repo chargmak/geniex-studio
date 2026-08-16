@@ -10,6 +10,7 @@ import type { AgentRunner } from '../agent/loop'
 import type { ApprovalCenter } from '../agent/approvals'
 import type { McpManager } from '../mcp/manager'
 import type { SidecarSupervisor } from '../sidecar/supervisor'
+import type { KnowledgeService } from '../knowledge/service'
 
 /**
  * Everything long-lived that HTTP routes need. Constructed once at boot (Electron main or the headless runner)
@@ -36,6 +37,7 @@ export interface AppContext {
   approvals: ApprovalCenter
   mcp: McpManager
   sidecar: SidecarSupervisor
+  knowledge: KnowledgeService
   repos: {
     conversations: ConversationRepo
     messages: MessageRepo

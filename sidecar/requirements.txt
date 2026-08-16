@@ -1,15 +1,13 @@
-# GenieX Studio — NPU media sidecar (Windows ARM64, CPython 3.12/3.13)
-# All packages below publish win_arm64 wheels or are pure Python.
+# GenieX Studio — NPU media sidecar (Windows ARM64, CPython 3.11–3.13; qai-appbuilder has no cp314 wheel)
+# Every package below publishes win_arm64 wheels or is pure Python. No torch / diffusers / transformers.
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9
-numpy>=2.0
+numpy>=2.0,<=2.4.4
 pillow>=10.4
 soundfile>=0.12
-huggingface_hub>=0.24
 requests>=2.32
-# Qualcomm runtimes
-qai-appbuilder>=2.48
-onnxruntime-qnn>=2.3
-# tokenizers for CLIP / Whisper (Rust wheels, win_arm64 available)
+regex>=2024.5
 tokenizers>=0.20
+# Qualcomm AI AppBuilder — bundles the QAIRT HTP runtime for Windows arm64 (no SDK install needed)
+qai-appbuilder>=2.48

@@ -218,8 +218,9 @@ sidecarRoutes.post('/audio/transcriptions', async (c) => {
   if (typeof body.language === 'string') fd.set('language', body.language)
   try {
     const res = await sidecar.fetch('/v1/audio/transcriptions', { method: 'POST', body: fd, timeoutMs: 10 * 60_000 })
-    const json = await res.json().catch(() => ({}))
-    return c.json(json, res.ok ? 200 : 502)
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) return c.json({ error: (json.detail as string) ?? (json.error as string) ?? `sidecar returned ${res.status}` }, 502)
+    return c.json(json)
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
   }
@@ -231,7 +232,16 @@ sidecarRoutes.post('/audio/speech', async (c) => {
   if (!body?.input?.trim()) return c.json({ error: 'input is required' }, 400)
   try {
     const res = await sidecar.fetch('/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeoutMs: 5 * 60_000 })
-    if (!res.ok) return c.json({ error: (await res.text().catch(() => '')) || `sidecar returned ${res.status}` }, 502)
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      let message = text
+      try {
+        message = (JSON.parse(text) as { detail?: string }).detail ?? text
+      } catch {
+        /* raw */
+      }
+      return c.json({ error: message || `sidecar returned ${res.status}` }, 502)
+    }
     return new Response(res.body, { headers: { 'Content-Type': res.headers.get('content-type') ?? 'audio/wav', 'Cache-Control': 'no-store' } })
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
@@ -246,7 +256,9 @@ sidecarRoutes.post('/embeddings', async (c) => {
   if (!body?.input) return c.json({ error: 'input is required' }, 400)
   try {
     const res = await sidecar.fetch('/v1/embeddings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeoutMs: 10 * 60_000 })
-    return c.json(await res.json().catch(() => ({})), res.ok ? 200 : 502)
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) return c.json({ error: (json.detail as string) ?? (json.error as string) ?? `sidecar returned ${res.status}` }, 502)
+    return c.json(json)
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
   }

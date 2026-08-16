@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Bot, Brain, FolderOpen, ImagePlus, MessageSquare, Paperclip, SlidersHorizontal, Square, X, Zap } from 'lucide-react'
+import { ArrowUp, Bot, Brain, FolderOpen, ImagePlus, MessageSquare, Paperclip, SlidersHorizontal, Square, X, Zap , BookOpen } from 'lucide-react'
 import type { ComputeUnit } from '@shared/config'
 import type { Attachment } from '@shared/chat'
 import type { CachedModel, SamplerSettings } from '@shared/api'
@@ -16,6 +16,8 @@ export interface ComposerSettings {
   enableThink: boolean
   compute: ComputeUnit
   sampler: SamplerSettings
+  /** Retrieval-augmented answers from the Knowledge page sources (needs the NPU sidecar + an indexed source). */
+  knowledge: boolean
 }
 
 const SLASH_COMMANDS: { cmd: string; hint: string; args?: string }[] = [
@@ -24,6 +26,7 @@ const SLASH_COMMANDS: { cmd: string; hint: string; args?: string }[] = [
   { cmd: '/system', hint: 'Set the system prompt for this chat', args: 'text' },
   { cmd: '/temp', hint: 'Sampling temperature', args: '0–2' },
   { cmd: '/max', hint: 'Max tokens per answer', args: 'n' },
+  { cmd: '/knowledge', hint: 'Toggle Knowledge (RAG) excerpts', args: 'on|off' },
   { cmd: '/regenerate', hint: 'Regenerate the last answer' },
 ]
 
@@ -50,6 +53,7 @@ export function Composer({
   onModeChange,
   workspaceRoot,
   onPickWorkspace,
+  knowledgeReady,
 }: {
   model: string | null
   modelInfo: CachedModel | undefined
@@ -73,6 +77,8 @@ export function Composer({
   onModeChange: (m: 'chat' | 'agent') => void
   workspaceRoot: string | null
   onPickWorkspace: () => void
+  /** null = knowledge feature unavailable (sidecar off / no embeddings); false = no ready sources; true = ready. */
+  knowledgeReady: boolean | null
 }): React.JSX.Element {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -277,6 +283,28 @@ export function Composer({
                 </button>
               </TooltipTrigger>
               <TooltipContent>Thinking mode ({settings.enableThink ? 'on' : 'off'}) — reasoning models plan before answering</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onSettingsChange({ knowledge: !settings.knowledge })}
+                  className={cn('inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-[13px] text-text-secondary hover:bg-surface-3', settings.knowledge && 'bg-accent-soft text-accent-brand hover:bg-accent-soft', settings.knowledge && knowledgeReady !== true && 'text-warning')}
+                  aria-pressed={settings.knowledge}
+                >
+                  <BookOpen className="size-3.5" />
+                  <span className="hidden sm:inline">Knowledge</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {settings.knowledge
+                  ? knowledgeReady === true
+                    ? 'Knowledge on — the best-matching excerpts from your indexed sources are cited in answers'
+                    : knowledgeReady === false
+                      ? 'Knowledge on, but no source is indexed yet — add one on the Knowledge page'
+                      : 'Knowledge on, but the NPU sidecar / embedding model is not available (see Studio)'
+                  : 'Knowledge off — answer from indexed local documents with citations (RAG on the NPU)'}
+              </TooltipContent>
             </Tooltip>
             {!isQairt && (
               <Popover>

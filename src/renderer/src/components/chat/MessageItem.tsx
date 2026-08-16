@@ -1,6 +1,7 @@
 import { memo, useState } from 'react'
-import { AlertTriangle, Check, Copy, Pencil, RefreshCw, User } from 'lucide-react'
+import { AlertTriangle, BookOpen, Check, ChevronDown, Copy, Pencil, RefreshCw, User } from 'lucide-react'
 import type { StoredMessage } from '@shared/chat'
+import type { KnowledgeHit } from '@shared/sidecar'
 import { cn, formatDuration, formatNumber } from '@/lib/utils'
 import { BrandMark } from '@/components/shell/BrandMark'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -86,6 +87,44 @@ export const UserMessage = memo(function UserMessage({ message, onEdit }: { mess
   )
 })
 
+/** Numbered knowledge-base excerpts that were injected for this reply; the model cites them as [n]. */
+function Citations({ hits, error }: { hits: KnowledgeHit[] | null; error?: string | null }): React.JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState<number | null>(null)
+  if (error) return <div className="mt-2 text-xs text-warning">{error}</div>
+  if (!hits?.length) return null
+  return (
+    <div className="mt-2 rounded-md bg-surface-2 hairline-subtle">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-xs text-text-secondary hover:text-text-primary" aria-expanded={open}>
+        <BookOpen className="size-3.5 text-accent-brand" />
+        <span>
+          {hits.length} source excerpt{hits.length === 1 ? '' : 's'} from your Knowledge
+        </span>
+        <span className="ml-auto flex items-center gap-1 truncate text-text-disabled">
+          {[...new Set(hits.map((h) => h.sourceName))].slice(0, 3).join(' · ')}
+          <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
+        </span>
+      </button>
+      {open && (
+        <ul className="flex flex-col gap-1 border-t border-border-subtle p-2">
+          {hits.map((h, i) => (
+            <li key={h.chunkId} className="rounded-sm bg-surface-1 px-2 py-1.5 hairline-subtle">
+              <button type="button" onClick={() => setExpanded(expanded === i ? null : i)} className="flex w-full items-center gap-2 text-left text-xs">
+                <span className="rounded-sm bg-accent-soft px-1.5 text-accent-brand">[{i + 1}]</span>
+                <span className="truncate text-text-primary">{h.sourceName}</span>
+                <span className="text-text-disabled">›</span>
+                <span className="truncate text-text-secondary">{h.file}</span>
+                <span className="ml-auto shrink-0 metadata-sm text-text-disabled">{Math.round(h.score * 100)}%</span>
+              </button>
+              {expanded === i && <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-text-secondary">{h.text}</pre>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export const AssistantMessage = memo(function AssistantMessage({
   message,
   stream,
@@ -125,6 +164,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           <span className="stream-caret" aria-hidden />
         ) : null}
         {live && shown && stream!.phase === 'answering' && <span className="stream-caret" aria-hidden />}
+        <Citations hits={live ? stream!.citations : (message.metrics?.citations ?? null)} error={live ? stream!.citationsError : null} />
         {message.status === 'error' && (
           <div className="mt-2 flex items-start gap-2 rounded-md bg-negative-soft px-3 py-2 text-sm text-negative hairline-subtle">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />

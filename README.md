@@ -11,6 +11,8 @@ A local-first desktop studio for **Qualcomm GenieX** on Snapdragon — chat, vis
 - **Models** — installed table, Qualcomm AI Hub catalogue for your chipset, Hugging Face GGUF pulls with quantisation discovery (Q4_0 = NPU), Docker Hub and local imports, live download progress, default chat/agent/vision picks.
 - **System** — supervises `geniex serve` (auto-start, restart, crash attribution), resident model, memory/CPU/GPU tiles, per-model tok/s, one-click benchmark across compute units, live server log.
 - **Settings** — server flags (host, keepalive, context, compute, log level), model defaults, workspace, theme, close-to-tray; onboarding checklist; **Ctrl+K** command palette; system tray.
+- **Studio (NPU media sidecar, optional)** — Stable Diffusion 1.5 / 2.1 text-to-image (≈5–7 s per 512² image on the NPU) with a gallery, **dictation** (Whisper on the NPU — mic button in the composer) and **read-aloud** (Piper TTS on the NPU) for any reply. One click installs a private Python 3.12 arm64 environment; models download on demand from Qualcomm AI Hub.
+- **Knowledge (local RAG)** — index folders of notes/docs/code; chunks are embedded with nomic-embed-text on the NPU and the best excerpts are injected into chat/agent prompts with numbered `[n]` citations shown under the answer.
 
 ## Requirements
 
@@ -31,7 +33,7 @@ Other scripts:
 npm run build        # production bundle → out/
 npm start            # electron-vite preview of the production bundle
 npm run serve        # headless: Studio API (+ built UI) without Electron → open http://127.0.0.1:18190
-npm test             # Vitest (parsers, prompt budgeting, tool-arg repair, sandbox)
+npm test             # Vitest (parsers, prompt budgeting, tool-arg repair, sandbox, knowledge chunking)
 npm run typecheck    # tsc for main + renderer
 npm run package      # NSIS installer for arm64 → release/
 ```
@@ -47,12 +49,23 @@ Electron main (Node 24 arm64)                          Renderer (React 19 SPA, s
 ├─ GenieXClient      serialized gate, warm-up load,    │        ThinkingFold · Markdown/CodeBlock/Mermaid · ArtifactPanel
 │   SSE + body sniffing, reasoning/tool-call deltas,   ├─ Agent: ToolCallCard · ApprovalCard · Agents page (runs/tools/MCP)
 │   TTFT/tok-s, telemetry recorder                     ├─ Models · System · Settings pages
-├─ ModelManager (geniex list/model list/remove)        └─ zustand stores: chat · models · server · ui · artifact
+├─ ModelManager (geniex list/model list/remove)        ├─ Studio (sidecar setup, image models, generate, gallery) · Knowledge page
+│                                                       └─ zustand stores: chat · models · server · ui · artifact · sidecar · knowledge
 ├─ PullManager (geniex pull, progress parsing)
 ├─ TurnRunner (chat) · AgentRunner (tool loop) · ApprovalCenter · McpManager
-├─ Hono API server (also serves the built renderer) — /api/genie /models /conversations /attachments /agent /system /settings
-├─ SQLite (better-sqlite3): conversations, messages, attachments, runs, run_events, telemetry, mcp_servers, approvals_rules
+├─ SidecarSupervisor (uv → Python 3.12 arm64 venv → uvicorn) · KnowledgeService (chunk → embed → cosine top-k)
+├─ Hono API server (also serves the built renderer) — /api/genie /models /conversations /attachments /agent /system /settings /sidecar /knowledge
+├─ SQLite (better-sqlite3): conversations, messages, attachments, runs, run_events, telemetry, mcp_servers, approvals_rules,
+│   generations, knowledge_sources, knowledge_chunks
 └─ Tray · close-to-tray · single instance
+
+sidecar/ (Python · FastAPI on 127.0.0.1:18195, spawned by the app · QAI AppBuilder + bundled QAIRT 2.48 HTP runtime)
+├─ engines/qnn.py      NamedContext: name-ordered I/O, dtype-faithful feeds (integer ids stay integer in FLOAT mode)
+├─ engines/sd.py       SD 1.5 (ε) / 2.1 (v-prediction): numpy CLIP BPE tokenizer, Euler scheduler, CFG, VAE — no torch/diffusers
+├─ engines/whisper.py  log-mel in numpy, encoder + KV-cache decoder loop (HF-export semantics), 30 s chunks
+├─ engines/tts.py      Piper VITS: CMUdict → espeak-style IPA → piper ids (interleaved PAD) → encoder → SDP → flow → HiFi-GAN windows
+├─ engines/embed.py    nomic-embed-text DLC, 128-token windows → 512-d normalised vectors
+└─ registry.py         model catalogue (public AI Hub S3 assets + HF tokenizer files), resumable downloads, NDJSON progress
 ```
 
 - The renderer never talks to GenieX directly; the Studio server proxies `/v1/chat/completions` so it can inject `GenieX-KeepCache`, sniff SSE bodies, measure TTFT/tok/s, translate runtime crashes, and serialise requests (GenieX holds one global mutex and keeps one model resident).
@@ -72,7 +85,7 @@ Source-verified (docs, `qualcomm/GenieX` source, issues) — see `docs/research/
 | One tool call per assistant turn; tool turns are buffered | sequential loop, one call/turn, no token streaming during tool turns |
 | Omits `Content-Type` on SSE when `reasoning_format:'auto'` + thinking | body sniffing instead of header trust |
 | Mid-stream errors end without `[DONE]` | tolerant SSE parser, error frames surfaced |
-| No embeddings / image / audio / video generation | out of scope for now (see Roadmap) |
+| No embeddings / image / audio / video generation | the optional **NPU sidecar** covers images (SD 1.5/2.1), STT (Whisper), TTS (Piper) and embeddings (nomic) on the NPU; video stays out of scope |
 
 ### Runtime findings on this machine (X1E80100, NPU driver 30.0.220.3000)
 
@@ -81,24 +94,49 @@ Source-verified (docs, `qualcomm/GenieX` source, issues) — see `docs/research/
 - **`hybrid` is faster per docs but crashed with Qwen3-4B here** → the default GGUF compute is `npu`; hybrid stays selectable (marked experimental).
 - No Windows performance counter set exists for the NPU on this machine, so the System page reports it honestly and leans on measured tok/s.
 
+## Phase 2 — NPU media sidecar
+
+The sidecar is a small FastAPI server (`sidecar/`) that the app provisions and supervises. It runs Qualcomm AI Hub models on the Hexagon NPU through **QAI AppBuilder** (`qai-appbuilder` 2.48.40, which bundles the QAIRT HTP runtime — nothing system-wide) and exposes OpenAI-shaped endpoints the app proxies under `/api/sidecar/*`:
+
+| Endpoint | Model (downloaded on demand) | Measured on X1E80100 |
+|---|---|---|
+| `POST /v1/images/generations` | Stable Diffusion 1.5 (w8a16, 681 MB) · 2.1 (836 MB) | 512² · 20 steps: **5.1 s** (1.5) / **6.7 s** (2.1) end-to-end |
+| `POST /v1/audio/transcriptions` | Whisper tiny / base / small | an 11 s clip in **~150–260 ms** |
+| `POST /v1/audio/speech` | Piper TTS (en, 22.05 kHz) | 17 s of speech in **~320 ms** |
+| `POST /v1/embeddings` | nomic-embed-text v1.5 (512-d) | ≈13 ms per text; 299 chunks indexed in ~5 s |
+
+Provisioning (Studio page → *Install*): download `uv` → `uv python install 3.12-aarch64` (a **native ARM64** CPython — `uv` picks x86_64 by default on Windows-on-ARM, so the arch is requested explicitly) → `uv venv` → `uv pip install -r sidecar/requirements.txt` (~35 packages; no torch/diffusers/transformers) → verify `import qai_appbuilder`. Everything lives under `%APPDATA%\GenieX Studio\sidecar\` (`.venv/`, `uv/`, `models/`). The sidecar starts on demand and the app works fully without it.
+
+Sidecar findings worth knowing:
+
+- **AppBuilder copies integer tensors byte-for-byte even in FLOAT mode** — casting phoneme/token ids to float32 feeds reinterpreted garbage; `NamedContext` keeps declared-integer inputs integer.
+- **Piper voices expect piper-phonemize's id layout**: `BOS, PAD, phoneme, PAD, …, EOS` (a PAD between every phoneme) with punctuation attached to the preceding word. Without the interleaved PADs the speech has the right rhythm but is unintelligible. G2P is CMUdict → espeak-style IPA (`ɹ ɡ ɚ ɜː`, stress mark before the vowel) with letter-name spelling for acronyms/unknown words; `gruut`/`espeak-ng` are avoided because `python-crfsuite` has no win_arm64 wheel.
+- **Whisper HF-export decoder**: additive attention mask initialised to −100 and opened one slot per step, right-aligned self-attention KV caches (length 199), decode from `<|startoftranscript|>` alone (the model emits language/task tokens itself).
+- **SD 2.1 needs `v_prediction`** in the Euler scheduler (the AI Hub export is the 512-base v-model); SD 1.5 uses ε.
+- The Voice-AI-SDK Piper bundle also ships an on-NPU charsiu ByT5 G2P (`charsiu_*.bin`) that could replace CMUdict later.
+
+Verify from a shell (sidecar venv): `python -m unittest discover -s sidecar/tests -v` (G2P checks skip until the Piper voice is downloaded).
+
 ## Roadmap
 
-- **Phase 2 — NPU media sidecar (optional):** a Python-arm64 FastAPI sidecar wrapping Qualcomm AI Hub / QAI AppBuilder models for Stable Diffusion image generation (SD 1.5/2.1 ≈4 s per 512² image, SD3.5-Medium), Whisper speech-to-text, Piper TTS and NPU embeddings for RAG — exposed OpenAI-style so the app treats them uniformly. Local **video generation is not realistic** on this hardware today.
+- Sidecar: SD 3.5-Medium 1024² (needs ~32 GB RAM), more Piper voices / languages (DE, IT on AI Hub), streaming dictation, PDF/Office parsing for Knowledge, on-NPU charsiu G2P. Local **video generation is not realistic** on this hardware today.
 - Auto-updater, `/v1/completions` FIM playground, GBNF grammar runs via the CLI, Windows AI Foundry integration.
 
 ## Project layout
 
 ```
 src/main/        Electron main: server/ (Hono routes) · geniex/ (supervisor, client, cli, models, pulls) · chat/ (prompt, turns)
-                 agent/ (loop, tools/, approvals, registry) · mcp/ · db/ · telemetry/ · tray.ts · ipc.ts · bootstrap.ts
+                 agent/ (loop, tools/, approvals, registry) · mcp/ · db/ · telemetry/ · sidecar/ (supervisor) · knowledge/ (service)
+                 tray.ts · ipc.ts · bootstrap.ts
 src/preload/     minimal contextBridge (dialogs, openExternal, window controls)
 src/renderer/    React app: app/ (pages) · components/{shell,chat,agent,ui,blocks} · stores/ · hooks/ · styles/
-src/shared/      API/chat/agent/settings types shared by main + renderer
+src/shared/      API/chat/agent/settings/sidecar types shared by main + renderer
+sidecar/         Python NPU sidecar: server.py · registry.py · util.py · engines/{qnn,sd,whisper,tts,embed}.py · tests/ · requirements.txt
 docs/            design-system.md · research/ (GenieX capability research)
 resources/       icons (generated by scripts/make-icons.py)
 ```
 
-Data lives in the app's user-data folder (`%APPDATA%\GenieX Studio` in dev): `settings.json`, `studio.db`, `attachments/`, `checkpoints/`. GenieX's own model cache is `%USERPROFILE%\.cache\geniex\models`.
+Data lives in the app's user-data folder (`%APPDATA%\GenieX Studio` in dev): `settings.json`, `studio.db`, `attachments/`, `checkpoints/`, `generated/` (images), `sidecar/` (venv + models). GenieX's own model cache is `%USERPROFILE%\.cache\geniex\models`.
 
 ## License
 

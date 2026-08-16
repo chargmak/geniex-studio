@@ -9,6 +9,7 @@ const TITLES: Record<string, string> = {
   chat: 'Chat',
   agents: 'Agents',
   studio: 'Studio',
+  knowledge: 'Knowledge',
   models: 'Models',
   system: 'System',
   settings: 'Settings',

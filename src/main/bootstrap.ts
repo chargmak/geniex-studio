@@ -16,6 +16,7 @@ import { AgentRunner } from './agent/loop'
 import { ApprovalCenter } from './agent/approvals'
 import { McpManager } from './mcp/manager'
 import { SidecarSupervisor } from './sidecar/supervisor'
+import { KnowledgeService } from './knowledge/service'
 
 export interface BootOptions {
   mode: AppContext['mode']
@@ -65,6 +66,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     approvals: new ApprovalCenter(db, settings),
     mcp: new McpManager(db),
     sidecar: new SidecarSupervisor({ sourceDir: opts.sidecarSourceDir, home: join(dataDir, 'sidecar') }),
+    knowledge: null as unknown as KnowledgeService,
     repos: {
       conversations: new ConversationRepo(db),
       messages: new MessageRepo(db),
@@ -73,6 +75,7 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     },
   }
   client.recorder = (r) => ctx.repos.telemetry.insert(r)
+  ctx.knowledge = new KnowledgeService(db, ctx.sidecar)
   ctx.turns = new TurnRunner(ctx)
   ctx.agent = new AgentRunner(ctx)
   void ctx.mcp.connectEnabled().catch(() => {})

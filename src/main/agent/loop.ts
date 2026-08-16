@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import type { ChatToolCall, GenieRequestOptions, SamplerSettings } from '@shared/api'
 import type { AgentEvent, RunSummary, ToolRisk } from '@shared/agent'
-import type { StoredMessage } from '@shared/chat'
+import type { KnowledgeOptions, StoredMessage } from '@shared/chat'
+import type { KnowledgeHit } from '@shared/sidecar'
+import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from '../chat/prompt'
 import { buildToolset } from './registry'
@@ -18,6 +20,7 @@ export interface AgentRunRequest {
   sampler?: SamplerSettings
   options?: GenieRequestOptions
   families?: string[]
+  knowledge?: KnowledgeOptions
 }
 
 const QAIRT_CONTEXT = 4096
@@ -211,6 +214,23 @@ export class AgentRunner {
       }
       const contextTokens = isQairt ? QAIRT_CONTEXT : (options.nctx ?? s.genie.nctx)
 
+      // Knowledge retrieval once per run, on the user's request; the excerpts ride along on every turn (droppable).
+      const kn = req.knowledge ?? conv.settings.knowledge
+      let knowledgeSection: { label: string; text: string; droppable: boolean } | null = null
+      let citations: KnowledgeHit[] | null = null
+      if (kn?.enabled && this.ctx.knowledge.hasReadySources()) {
+        try {
+          const hits = await this.ctx.knowledge.search(req.userText, { topK: kn.topK ?? 6, sourceIds: kn.sourceIds })
+          if (hits.length) {
+            citations = hits
+            knowledgeSection = { label: 'knowledge', text: KnowledgeService.formatSection(hits, Math.max(1500, Math.floor(contextTokens * 4 * 0.25))), droppable: true }
+            yield { type: 'citations', hits }
+          }
+        } catch (err) {
+          yield { type: 'citations', hits: [], error: `Knowledge search failed: ${err instanceof Error ? err.message : String(err)}` }
+        }
+      }
+
       for (let turn = 1; turn <= maxTurns; turn++) {
         if (ac.signal.aborted) break
         run.turns = turn
@@ -223,7 +243,7 @@ export class AgentRunner {
           contextTokens,
           maxTokens: Math.min(sampler.max_tokens ?? 2048, Math.floor(contextTokens / 2)),
           vision: !!isVlm,
-          extraSections: [{ label: 'agent', text: instructions, droppable: false }],
+          extraSections: [{ label: 'agent', text: instructions, droppable: false }, ...(knowledgeSection ? [knowledgeSection] : [])],
         })
         yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
 
@@ -233,7 +253,7 @@ export class AgentRunner {
         let content = ''
         let reasoning = ''
         let toolCalls: ChatToolCall[] = []
-        const metrics: StoredMessage['metrics'] = { compute: options.compute ?? (isQairt ? 'npu' : null) }
+        const metrics: StoredMessage['metrics'] = { compute: options.compute ?? (isQairt ? 'npu' : null), citations: turn === 1 && !assembled.droppedSections.includes('knowledge') ? citations : null }
         let streamError: string | null = null
         let finish: string | null = null
         // On the very last turn, force a final answer by withholding tools.

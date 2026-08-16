@@ -8,7 +8,9 @@ import { killTree } from '../util/killTree'
 import type { LogLine } from '../geniex/supervisor'
 
 export const SIDECAR_PORT = 18195
-const PY_SERIES = ['3.12', '3.13'] // qai-appbuilder ships cp311–cp313 win_arm64 wheels; 3.12 is the safest
+// qai-appbuilder ships cp311–cp313 win_arm64 wheels. NOTE: on Windows-on-ARM uv deliberately prefers x86_64 (emulated)
+// builds unless the arch is requested explicitly (astral-sh/uv#12906), hence the '-aarch64' suffix.
+const PY_SERIES = ['3.12-aarch64', '3.13-aarch64', '3.11-aarch64']
 const UV_ZIP_URL = 'https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-pc-windows-msvc.zip'
 
 export interface SidecarPaths {
@@ -158,7 +160,7 @@ export class SidecarSupervisor extends EventEmitter {
         return exe
       }
     }
-    emit({ type: 'step', step: 'python', message: `Installing CPython ${PY_SERIES[0]} (arm64) — about 30 MB…` })
+    emit({ type: 'step', step: 'python', message: `Installing native CPython ${PY_SERIES[0]} — about 40 MB…` })
     const r = await run(uv, ['python', 'install', PY_SERIES[0]], { env: this.uvEnv, onLine: (l) => emit({ type: 'log', message: l }), timeoutMs: 600_000 })
     if (r.code !== 0) throw new Error(`uv python install failed: ${r.out.slice(-600)}`)
     const found = await run(uv, ['python', 'find', PY_SERIES[0]], { env: this.uvEnv })

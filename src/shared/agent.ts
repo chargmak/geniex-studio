@@ -1,4 +1,5 @@
 import type { ChatStreamEvent } from './api'
+import type { KnowledgeHit } from './sidecar'
 import type { Conversation, StoredMessage } from './chat'
 
 export type ToolRisk = 'read' | 'write' | 'exec' | 'network' | 'mcp'
@@ -55,6 +56,7 @@ export type AgentEvent =
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
   | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
   | { type: 'tool-call'; callId: string; tool: string; args: Record<string, unknown>; summary: string; risk: ToolRisk }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'approval-decision'; requestId: string; decision: ApprovalDecision }

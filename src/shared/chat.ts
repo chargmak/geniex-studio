@@ -1,4 +1,13 @@
 import type { ChatContentPart, ChatToolCall, GenieRequestOptions, SamplerSettings } from './api'
+import type { KnowledgeHit } from './sidecar'
+
+/** Per-conversation retrieval settings (Knowledge page sources, embedded on the NPU). */
+export interface KnowledgeOptions {
+  enabled: boolean
+  /** Restrict to these source ids (empty/undefined = all ready sources). */
+  sourceIds?: string[]
+  topK?: number
+}
 
 /** Persisted conversation + message shapes (renderer ↔ /api/conversations). */
 export type ConversationMode = 'chat' | 'agent'
@@ -8,6 +17,7 @@ export interface ConversationSettings {
   options?: GenieRequestOptions
   enableThink?: boolean
   tools?: string[] // enabled tool ids in agent mode
+  knowledge?: KnowledgeOptions
 }
 
 export interface Conversation {
@@ -38,6 +48,8 @@ export interface MessageMetrics {
   completionTokens?: number | null
   finishReason?: string | null
   compute?: string | null
+  /** Knowledge-base excerpts that were injected for this reply (numbered as cited). */
+  citations?: KnowledgeHit[] | null
 }
 
 export interface Attachment {

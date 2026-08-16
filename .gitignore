@@ -32,3 +32,4 @@ sidecar/models/
 .env.local
 .env*.local
 .next/
+__pycache__/

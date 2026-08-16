@@ -1,5 +1,7 @@
 import type { ChatStreamEvent, ChatToolDefinition, GenieRequestOptions, SamplerSettings } from '@shared/api'
-import type { Conversation, MessageMetrics, StoredMessage } from '@shared/chat'
+import type { Conversation, KnowledgeOptions, MessageMetrics, StoredMessage } from '@shared/chat'
+import type { KnowledgeHit } from '@shared/sidecar'
+import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from './prompt'
 
@@ -21,6 +23,8 @@ export interface TurnRequest {
   /** Agent mode hooks (M4): tool definitions and extra prompt sections. */
   tools?: ChatToolDefinition[]
   extraSections?: { label: string; text: string; droppable: boolean }[]
+  /** Retrieval over Knowledge sources for this turn (falls back to the conversation's saved setting). */
+  knowledge?: KnowledgeOptions
 }
 
 export type TurnEvent =
@@ -28,6 +32,7 @@ export type TurnEvent =
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
   | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
 
 const QAIRT_CONTEXT = 4096
 
@@ -89,6 +94,7 @@ export class TurnRunner {
       if (model !== conv.model) patch.model = model
       if (req.systemPrompt !== undefined && req.systemPrompt !== conv.systemPrompt) patch.systemPrompt = req.systemPrompt
       if (req.persist && (req.sampler || req.options)) patch.settings = { ...conv.settings, ...(req.sampler ? { sampler: req.sampler } : {}), ...(req.options ? { options: req.options } : {}) }
+      if (req.knowledge && JSON.stringify(req.knowledge) !== JSON.stringify(conv.settings.knowledge)) patch.settings = { ...(patch.settings ?? conv.settings), knowledge: req.knowledge }
       if (Object.keys(patch).length) conv = repos.conversations.update(conv.id, patch) ?? conv
 
       // ---------------------------------------------------------- mutations: edit / regenerate / new message
@@ -136,13 +142,36 @@ export class TurnRunner {
       }
       const contextTokens = isQairt ? QAIRT_CONTEXT : (options.nctx ?? s.genie.nctx)
       const maxTokens = sampler.max_tokens ?? 2048
+
+      // ---------------------------------------------------------- knowledge retrieval (RAG)
+      const extraSections = [...(req.extraSections ?? [])]
+      let citations: KnowledgeHit[] | null = null
+      const kn = req.knowledge ?? conv.settings.knowledge
+      if (kn?.enabled && this.ctx.knowledge.hasReadySources()) {
+        const lastUser = [...history].reverse().find((m) => m.role === 'user')
+        const query = typeof lastUser?.content === 'string' ? lastUser.content : (lastUser?.content ?? []).map((p) => (p.type === 'text' ? p.text : '')).join(' ')
+        try {
+          const hits = await this.ctx.knowledge.search(query, { topK: kn.topK ?? 6, sourceIds: kn.sourceIds })
+          if (hits.length) {
+            citations = hits
+            // Budget the excerpts to ~a third of the window so history survives on 4k models.
+            extraSections.push({ label: 'knowledge', text: KnowledgeService.formatSection(hits, Math.max(1500, Math.floor(contextTokens * 4 * 0.3))), droppable: true })
+            yield { type: 'citations', hits }
+          }
+        } catch (err) {
+          // non-fatal: answer without excerpts, but tell the UI why
+          yield { type: 'citations', hits: [], error: `Knowledge search failed: ${err instanceof Error ? err.message : String(err)}` }
+        }
+      }
+
       const assembled = assemblePrompt(history, {
         systemPrompt: req.systemPrompt !== undefined ? req.systemPrompt : (conv.systemPrompt ?? s.defaults.systemPrompt),
         contextTokens,
         maxTokens: Math.min(maxTokens, Math.floor(contextTokens / 2)),
         vision: !!isVlm,
-        extraSections: req.extraSections,
+        extraSections,
       })
+      if (citations && assembled.droppedSections.includes('knowledge')) citations = null
       yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
 
       // ---------------------------------------------------------- assistant placeholder
@@ -153,7 +182,7 @@ export class TurnRunner {
       let content = ''
       let reasoning = ''
       let toolCalls: StoredMessage['toolCalls'] = null
-      const metrics: MessageMetrics = { compute: options.compute ?? (isQairt ? 'npu' : null) }
+      const metrics: MessageMetrics = { compute: options.compute ?? (isQairt ? 'npu' : null), citations }
       let finished = false
       let lastFlush = Date.now()
 

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { Bot, Boxes, Cpu, ImageIcon, MessageSquare, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react'
+import { Bot, Boxes, Cpu, ImageIcon, MessageSquare, PanelLeftClose, PanelLeftOpen, Settings, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/uiStore'
 import { BrandMark } from './BrandMark'
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/chat', label: 'Chat', icon: MessageSquare, hint: 'Conversations with local models' },
   { to: '/agents', label: 'Agents', icon: Bot, hint: 'Agent runs, tools and approvals' },
   { to: '/studio', label: 'Studio', icon: ImageIcon, hint: 'Image generation, voice and embeddings on the NPU (sidecar)' },
+  { to: '/knowledge', label: 'Knowledge', icon: BookOpen, hint: 'Index local folders and answer with cited excerpts (RAG on the NPU)' },
   { to: '/models', label: 'Models', icon: Boxes, hint: 'Installed models and the AI Hub catalogue' },
   { to: '/system', label: 'System', icon: Cpu, hint: 'GenieX server, NPU and telemetry' },
   { to: '/settings', label: 'Settings', icon: Settings, hint: 'Sampling, compute, MCP, workspace' },

@@ -9,6 +9,8 @@ import { useModelsStore } from '@/stores/modelsStore'
 import { useServerStore } from '@/stores/serverStore'
 import { MessageList } from './MessageList'
 import { Composer, type ComposerSettings } from './Composer'
+import { useKnowledgeStore } from '@/stores/knowledgeStore'
+import { useSidecarStore } from '@/stores/sidecarStore'
 import { ChatEmpty } from './ChatEmpty'
 import { ContextMeter } from './ContextMeter'
 
@@ -74,9 +76,20 @@ export function ChatView(): React.JSX.Element {
       enableThink: localSettings.enableThink ?? conversation?.settings.enableThink ?? defaults?.defaults.enableThink ?? true,
       compute: (localSettings.compute ?? conversation?.settings.options?.compute ?? defaults?.defaults.computeGguf ?? 'npu') as ComputeUnit,
       sampler: localSettings.sampler ?? conversation?.settings.sampler ?? defaults?.defaults.sampler ?? {},
+      knowledge: localSettings.knowledge ?? conversation?.settings.knowledge?.enabled ?? false,
     }),
     [conversation, defaults, localSettings],
   )
+
+  // Knowledge availability for the composer badge: sidecar embeddings feature + at least one indexed source.
+  const sidecarStatus = useSidecarStore((s) => s.status)
+  const knowledgeSourcesReady = useKnowledgeStore((s) => s.ready)
+  const knowledgeLoaded = useKnowledgeStore((s) => s.loaded)
+  const refreshKnowledge = useKnowledgeStore((s) => s.refresh)
+  useEffect(() => {
+    if (composerSettings.knowledge && !knowledgeLoaded) void refreshKnowledge()
+  }, [composerSettings.knowledge, knowledgeLoaded, refreshKnowledge])
+  const knowledgeReady: boolean | null = sidecarStatus?.state === 'running' && sidecarStatus.features?.embeddings ? knowledgeSourcesReady : null
 
   const persistSettings = useCallback(
     (patch: Partial<ComposerSettings>) => {
@@ -86,6 +99,7 @@ export function ChatView(): React.JSX.Element {
         if (patch.enableThink !== undefined) settings.enableThink = patch.enableThink
         if (patch.compute !== undefined) settings.options = { ...(settings.options ?? {}), compute: patch.compute }
         if (patch.sampler !== undefined) settings.sampler = patch.sampler
+        if (patch.knowledge !== undefined) settings.knowledge = { ...(settings.knowledge ?? {}), enabled: patch.knowledge }
         void updateConversation(activeId, { settings })
       }
     },
@@ -107,7 +121,7 @@ export function ChatView(): React.JSX.Element {
   const doSend = useCallback(
     (text: string) => {
       const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute } : {}) }
-      void send({ text, mode, model: model ?? undefined, sampler: composerSettings.sampler, options, editMessageId: editing?.id })
+      void send({ text, mode, model: model ?? undefined, sampler: composerSettings.sampler, options, editMessageId: editing?.id, knowledge: { enabled: composerSettings.knowledge } })
       if (editing) setEditing(null)
     },
     [composerSettings, editing, mode, model, modelInfo?.runtime, send],
@@ -116,7 +130,7 @@ export function ChatView(): React.JSX.Element {
   const onRegenerate = useCallback(() => {
     if (busy) return
     const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute } : {}) }
-    void send({ text: '', regenerate: true, model: model ?? undefined, sampler: composerSettings.sampler, options })
+    void send({ text: '', regenerate: true, model: model ?? undefined, sampler: composerSettings.sampler, options, knowledge: { enabled: composerSettings.knowledge } })
   }, [busy, composerSettings, model, modelInfo?.runtime, send])
 
   const onEdit = useCallback(
@@ -146,6 +160,9 @@ export function ChatView(): React.JSX.Element {
           return true
         case '/system':
           if (activeId) void updateConversation(activeId, { systemPrompt: arg || null })
+          return true
+        case '/knowledge':
+          persistSettings({ knowledge: arg ? /^(on|true|1|yes)$/i.test(arg) : !composerSettings.knowledge })
           return true
         case '/regenerate':
           onRegenerate()
@@ -220,6 +237,7 @@ export function ChatView(): React.JSX.Element {
         onPickFiles={() => void onPickFiles()}
         busy={busy}
         onSend={doSend}
+        knowledgeReady={knowledgeReady}
         onStop={() => void stop()}
         onCommand={onCommand}
         draft={draft}

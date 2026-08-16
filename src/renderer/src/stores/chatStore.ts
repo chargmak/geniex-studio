@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { ChatStreamEvent, GenieRequestOptions, SamplerSettings } from '@shared/api'
 import type { AgentEvent, ApprovalDecision, ApprovalRequest, RunSummary, ToolRisk } from '@shared/agent'
-import type { Attachment, Conversation, StoredMessage } from '@shared/chat'
+import type { Attachment, Conversation, StoredMessage, KnowledgeOptions } from '@shared/chat'
+import type { KnowledgeHit } from '@shared/sidecar'
 import { api, readSse } from '@/lib/api'
 
 type TurnEvent =
@@ -9,6 +10,7 @@ type TurnEvent =
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
   | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
 
 export interface StreamState {
   messageId: string | null
@@ -22,6 +24,8 @@ export interface StreamState {
   tokensPerSecond: number | null
   completionTokens: number | null
   error: string | null
+  citations: KnowledgeHit[] | null
+  citationsError: string | null
 }
 
 export interface LiveToolCall {
@@ -67,6 +71,8 @@ const idleStream = (): StreamState => ({
   tokensPerSecond: null,
   completionTokens: null,
   error: null,
+  citations: null,
+  citationsError: null,
 })
 
 interface SendOptions {
@@ -78,6 +84,7 @@ interface SendOptions {
   options?: GenieRequestOptions
   regenerate?: boolean
   editMessageId?: string
+  knowledge?: KnowledgeOptions
 }
 
 interface ChatState {
@@ -247,7 +254,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           isAgent
-            ? { conversationId: id, userText: opts.text, attachmentIds, model: opts.model, sampler: opts.sampler, options: opts.options }
+            ? { conversationId: id, userText: opts.text, attachmentIds, model: opts.model, sampler: opts.sampler, options: opts.options, knowledge: opts.knowledge }
             : {
                 userText: opts.text,
                 attachmentIds,
@@ -256,6 +263,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 options: opts.options,
                 regenerate: opts.regenerate,
                 editMessageId: opts.editMessageId,
+                knowledge: opts.knowledge,
               },
         ),
         signal: ac.signal,
@@ -278,6 +286,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             break
           case 'conversation':
             set((s) => ({ conversations: [ev.conversation, ...s.conversations.filter((c) => c.id !== ev.conversation.id)].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt) }))
+            break
+          case 'citations':
+            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, citations: ev.hits.length ? ev.hits : null, citationsError: ev.error ?? null } } }))
             break
           case 'prompt':
             set((s) => ({ promptInfo: { ...s.promptInfo, [id]: { estimatedTokens: ev.estimatedTokens, contextTokens: ev.contextTokens, droppedHistory: ev.droppedHistory, droppedSections: ev.droppedSections, imagesStripped: ev.imagesStripped } } }))
