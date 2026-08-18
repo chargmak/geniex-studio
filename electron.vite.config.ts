@@ -6,6 +6,14 @@ import tailwindcss from '@tailwindcss/vite'
 /** Port the in-process Hono API server listens on during development (renderer dev server proxies /api to it). */
 const API_PORT = Number(process.env.GENIEX_STUDIO_PORT ?? 18190)
 
+/**
+ * The renderer is always loaded over HTTP (the in-process Hono server), never file://, so asset URLs must be
+ * absolute: with electron-vite's relative production default, a deep link such as /settings/updates asks for
+ * /settings/assets/index-*.js and 404s. electron-vite forces `base: './'` from an `enforce: 'pre'` plugin,
+ * so this unenforced plugin's config() hook runs afterwards and wins.
+ */
+const absoluteBase = { name: 'geniex:absolute-base', config: (c: { base?: string }) => void (c.base = '/') }
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
@@ -37,7 +45,7 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
-    plugins: [react(), tailwindcss()],
+    plugins: [absoluteBase, react(), tailwindcss()],
     resolve: {
       alias: {
         '@': resolve('src/renderer/src'),
