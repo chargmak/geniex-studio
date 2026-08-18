@@ -42,6 +42,8 @@ export class GenieXSupervisor extends EventEmitter {
   private cli: CliInfo = { path: null, version: null, qairt: null, llamaCppHash: null, chipset: null, probedAt: 0 }
   private starting: Promise<void> | null = null
   private restartAttempts = 0
+  /** Set while *we* are terminating the process, so its exit is never mistaken for a runtime crash. */
+  private intentionalStop = false
 
   readonly logs = new RingBuffer<LogLine>(1000)
 
@@ -148,6 +150,11 @@ export class GenieXSupervisor extends EventEmitter {
     return this.state === 'running'
   }
 
+  /** True while the server is down because *we* stopped it (Stop button, restart, app quit) — not a crash. */
+  get stoppedIntentionally(): boolean {
+    return this.intentionalStop
+  }
+
   // ------------------------------------------------------------ health
 
   async isHealthy(timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
@@ -173,6 +180,7 @@ export class GenieXSupervisor extends EventEmitter {
   }
 
   private async doStart(): Promise<void> {
+    this.intentionalStop = false
     await this.probeCli()
     const g = this.settings.get().genie
 
@@ -224,7 +232,9 @@ export class GenieXSupervisor extends EventEmitter {
       this.log('studio', `geniex serve exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
       const wasRunning = this.state === 'running'
       this.proc = null
-      if (this.state !== 'stopping') {
+      if (this.intentionalStop || this.state === 'stopping') {
+        this.setState('stopped')
+      } else {
         const codeStr = code != null ? (code > 0x7fffffff || code < 0 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code)) : (signal ?? '?')
         this.lastCrash = { at: Date.now(), code: codeStr, model: this.activeModel }
         if (this.activeModel) {
@@ -240,8 +250,6 @@ export class GenieXSupervisor extends EventEmitter {
           this.log('studio', `auto-restart in ${delay} ms (attempt ${this.restartAttempts}/3)`)
           setTimeout(() => void this.start().catch(() => {}), delay)
         }
-      } else {
-        this.setState('stopped')
       }
     })
 
@@ -279,6 +287,7 @@ export class GenieXSupervisor extends EventEmitter {
 
   async stop(): Promise<void> {
     this.stopPolling()
+    this.intentionalStop = true
     if (this.managed && this.proc) {
       this.setState('stopping')
       const p = this.proc
@@ -297,8 +306,14 @@ export class GenieXSupervisor extends EventEmitter {
     await this.start()
   }
 
+  /**
+   * Quit path. `intentionalStop` must be set *before* the kill: without it the exit handler treats our own
+   * termination as a runtime crash and records the in-flight model in runtime-crashes.json — so quitting the
+   * app mid-generation would permanently blacklist a perfectly healthy model.
+   */
   async shutdown(): Promise<void> {
     this.stopPolling()
+    this.intentionalStop = true
     if (this.managed && this.proc) await killTree(this.proc)
     this.proc = null
   }

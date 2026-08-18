@@ -1,11 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export interface CrashRecord {
-  count: number
-  lastAt: number
-  code: string
-}
+export type { CrashRecord } from '@shared/modelSelect'
+import type { CrashRecord } from '@shared/modelSelect'
 
 /**
  * Persistent "this model killed the runtime" log.

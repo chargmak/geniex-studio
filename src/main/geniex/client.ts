@@ -245,6 +245,10 @@ export class GenieXClient {
    */
   async warmUp(model: string, options?: GenieRequestOptions, signal?: AbortSignal): Promise<number> {
     await this.ensureRunning()
+    // Restore rather than clear on the way out: chatStream sets activeModel before calling us and still needs it
+    // for crash attribution during the generation that follows. A standalone warm-up must not leave it dangling,
+    // or an unrelated later exit would be blamed on this model.
+    const previousActive = this.sup.activeModel
     this.sup.activeModel = model
     const started = Date.now()
     const body = this.buildBody({ model, messages: [], options }, false)
@@ -258,6 +262,9 @@ export class GenieXClient {
     })
     if (!res.ok) throw await this.readError(res)
     await res.text().catch(() => '')
+    // Only on success — a failure here may be the runtime dying, and the exit handler still needs activeModel
+    // to attribute the crash to this model.
+    this.sup.activeModel = previousActive
     const key = optionsKey(model, options, this.serveDefaults())
     this.residentKey = key
     this.sup.residentModel = model
@@ -273,6 +280,9 @@ export class GenieXClient {
   private async translateFailure(err: unknown, model: string): Promise<unknown> {
     const e = err as Error & { cause?: { code?: string }; name?: string }
     if (e?.name === 'AbortError') return err
+    // Stopping the server ourselves (Stop button, restart, app quit) drops any in-flight connection. That is not a
+    // model crash, and blaming the in-flight model would permanently blacklist it in runtime-crashes.json.
+    if (this.sup.stoppedIntentionally) return err
     const connDropped =
       /fetch failed|ECONNRESET|ECONNREFUSED|socket hang up|terminated|other side closed/i.test(e?.message ?? '') ||
       /ECONNRESET|ECONNREFUSED|UND_ERR_SOCKET/i.test(e?.cause?.code ?? '')
@@ -429,6 +439,10 @@ export class GenieXClient {
               }
             }
           }
+
+          // Aborting mid-stream cancels the body reader, which *ends* the read loop cleanly rather than throwing —
+          // so without this check a cancelled turn would be persisted as a normal, complete reply.
+          if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
 
           if (toolAcc.size) {
             push({ type: 'tool_calls', tool_calls: [...toolAcc.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v) })

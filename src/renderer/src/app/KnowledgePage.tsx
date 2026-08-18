@@ -62,7 +62,9 @@ export function KnowledgePage(): React.JSX.Element {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="heading-xs text-text-primary">Knowledge</span>
-                <Badge variant={embedReady ? 'positive' : running ? 'warning' : 'neutral'}>{embedReady ? 'embeddings on NPU' : running ? 'embedding model missing' : 'sidecar stopped'}</Badge>
+                <Badge variant={embedReady ? 'positive' : running ? 'warning' : 'neutral'}>
+                  {embedReady ? 'embeddings on NPU' : running ? 'embedding model missing' : sidecar?.state === 'not-installed' ? 'sidecar not installed' : `sidecar ${sidecar?.state ?? 'stopped'}`}
+                </Badge>
               </div>
               <p className="mt-1 body-sm text-text-secondary">
                 Index folders of notes, docs or code. Text is split into overlapping chunks and embedded with nomic-embed-text on the Hexagon NPU; when you switch on <em>Knowledge</em> in the chat composer, the best-matching excerpts are added to the prompt with numbered citations. Supported: Markdown, plain text, code, JSON/YAML/CSV. PDFs and Office files are not parsed.

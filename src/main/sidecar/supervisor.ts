@@ -286,8 +286,10 @@ export class SidecarSupervisor extends EventEmitter {
     }
   }
 
+  /** Quit path — mark the stop first so the exit handler does not report our own kill as "exited unexpectedly". */
   async shutdown(): Promise<void> {
     this.stopPolling()
+    this.setState('stopped')
     if (this.proc) await killTree(this.proc)
     this.proc = null
   }

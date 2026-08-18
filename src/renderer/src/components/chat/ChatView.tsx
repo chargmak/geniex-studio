@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { StoredMessage } from '@shared/chat'
 import type { StudioSettings } from '@shared/settings'
 import type { ComputeUnit } from '@shared/config'
+import { pickAutoModel } from '@shared/modelSelect'
 import { api } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
 import { useModelsStore } from '@/stores/modelsStore'
@@ -69,7 +70,14 @@ export function ChatView(): React.JSX.Element {
     setDefaults((d) => (d ? { ...d, workspace: { ...d.workspace, root: paths[0] } } : d))
   }, [activeId, updateConversation])
 
-  const model = localModel ?? conversation?.model ?? defaults?.defaults.chatModel ?? installed[0]?.requestIds[0] ?? null
+  // Same auto-pick the server would make (@shared/modelSelect): the composer has to *show* a model before the
+  // turn is sent, and it sends that model explicitly — so a naive `installed[0]` fallback here would silently
+  // bypass the crash avoidance and walk straight back into a model known to kill the runtime (issue #1154).
+  const autoModel = useMemo(
+    () => pickAutoModel(installed, { crashed: genie?.crashedModels, preferred: (mode === 'agent' ? defaults?.defaults.agentModel : null) ?? defaults?.defaults.chatModel }),
+    [installed, genie?.crashedModels, defaults?.defaults.agentModel, defaults?.defaults.chatModel, mode],
+  )
+  const model = localModel ?? conversation?.model ?? autoModel
   const modelInfo = findModel(model)
   const composerSettings: ComposerSettings = useMemo(
     () => ({

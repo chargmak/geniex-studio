@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { AlertTriangle, Check, ChevronDown, Cpu, Eye, Search } from 'lucide-react'
 import type { CachedModel } from '@shared/api'
+import { crashRecordFor } from '@shared/modelSelect'
 import { cn, formatBytes } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -57,7 +58,7 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
         >
           {current?.type === 'vlm' ? <Eye className="size-3.5 text-text-secondary" /> : <Cpu className="size-3.5 text-text-secondary" />}
           <span className="truncate">{modelLabel(value)}</span>
-          {value && crashed[value.split(':')[0]] && <AlertTriangle className="size-3.5 text-warning" />}
+          {value && crashRecordFor(crashed, value, current?.name ?? value.split(':')[0]) && <AlertTriangle className="size-3.5 text-warning" />}
           <ChevronDown className="size-3.5 text-text-secondary" />
         </button>
       </PopoverTrigger>
@@ -79,7 +80,8 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
             </div>
           )}
           {entries.map(({ id, model }) => {
-            const crash = crashed[model.name]
+            // Crashes are keyed by the id the request used: the bare name for QAIRT, `name:precision` for GGUF.
+            const crash = crashRecordFor(crashed, id, model.name)
             const isSel = id === value
             const isResident = resident === id
             return (
