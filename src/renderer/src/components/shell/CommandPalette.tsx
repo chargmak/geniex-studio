@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Bot, Boxes, Cpu, MessageSquare, Moon, Play, RefreshCw, Search, Settings, Square, Sun, ImageIcon, BookOpen } from 'lucide-react'
+import { ArrowDownToLine, Bot, Boxes, Cpu, MessageSquare, Moon, Play, RefreshCw, Search, Settings, Square, Sun, ImageIcon, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/uiStore'
 import { useServerStore } from '@/stores/serverStore'
@@ -64,6 +64,7 @@ export function CommandPalette(): React.JSX.Element | null {
       { id: 'go-models', label: 'Go to Models', icon: Boxes, run: () => navigate('/models') },
       { id: 'go-system', label: 'Go to System', icon: Cpu, run: () => navigate('/system') },
       { id: 'go-settings', label: 'Go to Settings', icon: Settings, run: () => navigate('/settings') },
+      { id: 'check-updates', label: 'Check for updates', icon: ArrowDownToLine, keywords: 'update version upgrade install', run: () => { navigate('/settings/updates'); void window.studio?.updates.check() } },
       { id: 'theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, icon: theme === 'dark' ? Sun : Moon, run: toggleTheme },
     ]
     if (genie?.state === 'running') {

@@ -36,7 +36,25 @@ npm run serve        # headless: Studio API (+ built UI) without Electron → op
 npm test             # Vitest (parsers, prompt budgeting, tool-arg repair, sandbox, knowledge chunking)
 npm run typecheck    # tsc for main + renderer
 npm run package      # NSIS installer for arm64 → release/
+npm run release      # same, then upload to a draft GitHub release (see docs/RELEASING.md)
 ```
+
+## Install it as a desktop app
+
+`npm run package` produces `release/GenieX Studio-<version>-win-arm64.exe` — a per-user NSIS installer (no
+admin rights). It adds Start-menu and desktop shortcuts, an entry in Settings → Apps, and keeps everything
+under `%LOCALAPPDATA%\Programs`. Once installed, Studio behaves like any other Windows app:
+
+- remembers window size, position and maximized state between launches
+- optional **Start with Windows** and **Start minimized to tray** (Settings → Appearance & startup)
+- close-to-tray keeps the GenieX server, downloads and agent runs alive; the tray menu can start/stop the server
+- single instance — launching again focuses the running window
+- **updates itself** from GitHub Releases: checks on launch and every six hours, downloads only the changed
+  blocks of the installer, and applies it on **Restart & install** (Settings → Updates, or the top-bar pill).
+  Chats, settings and models live in `%APPDATA%\geniex-studio` and survive updates and uninstalls.
+
+Publishing a new version is `npm run release` → review the draft → `npm run release:publish`. Full flow,
+channels (stable/beta) and signing notes: [docs/RELEASING.md](docs/RELEASING.md).
 
 First launch shows an onboarding checklist: CLI detected → server running → pull a starter model (**unsloth/Qwen3-4B-GGUF:Q4_0** ≈2.4 GB, runs on the NPU). Then chat.
 
@@ -57,6 +75,7 @@ Electron main (Node 24 arm64)                          Renderer (React 19 SPA, s
 ├─ Hono API server (also serves the built renderer) — /api/genie /models /conversations /attachments /agent /system /settings /sidecar /knowledge
 ├─ SQLite (better-sqlite3): conversations, messages, attachments, runs, run_events, telemetry, mcp_servers, approvals_rules,
 │   generations, knowledge_sources, knowledge_chunks
+├─ UpdateService (electron-updater → GitHub Releases) · WindowStateKeeper · launch-at-login
 └─ Tray · close-to-tray · single instance
 
 sidecar/ (Python · FastAPI on 127.0.0.1:18195, spawned by the app · QAI AppBuilder + bundled QAIRT 2.48 HTP runtime)

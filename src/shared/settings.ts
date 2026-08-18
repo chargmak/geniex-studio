@@ -1,5 +1,6 @@
 import type { ComputeUnit } from './config'
 import type { SamplerSettings } from './api'
+import type { UpdateChannel } from './update'
 import { DEFAULT_GENIEX_HOST, DEFAULT_GENIEX_KEEPALIVE_SECONDS, DEFAULT_NCTX } from './config'
 
 /** Persisted Studio settings (dataDir/settings.json). Renderer edits via /api/settings. */
@@ -46,6 +47,15 @@ export interface StudioSettings {
     theme: 'dark' | 'light'
     closeToTray: boolean
     launchAtLogin: boolean
+    /** Start with the window hidden in the tray (always, not just when launched at login). */
+    startMinimized: boolean
+  }
+  updates: {
+    /** Check the release feed on startup and every few hours. */
+    autoCheck: boolean
+    /** Download in the background as soon as an update is found (install still needs a restart). */
+    autoDownload: boolean
+    channel: UpdateChannel
   }
   onboarding: {
     completed: boolean
@@ -82,7 +92,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     enabledFamilies: ['fs', 'shell', 'web', 'mcp', 'vision'],
     instructions: '',
   },
-  ui: { theme: 'dark', closeToTray: true, launchAtLogin: false },
+  ui: { theme: 'dark', closeToTray: true, launchAtLogin: false, startMinimized: false },
+  updates: { autoCheck: true, autoDownload: true, channel: 'stable' },
   onboarding: { completed: false },
 }
 

@@ -1,0 +1,33 @@
+name: Release
+
+# Builds the Windows-on-ARM installer and uploads it (plus latest.yml + .blockmap) to a draft GitHub release.
+# Publishing that draft — `npm run release:publish` or the Release UI — is what makes installed copies update.
+#
+# Requires an arm64 Windows runner: `windows-11-arm` is free for public repos. On a private repo without one,
+# build locally on the Snapdragon machine with `npm run release` instead — cross-building from x64 would ship
+# an x64 better-sqlite3 binary (npmRebuild is off by design; there is no compile toolchain on these boxes).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx electron-builder --win nsis --arm64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,5 @@
+# Update feed used only when GENIEX_FORCE_UPDATER=1 is set (electron-updater refuses to run in a dev build otherwise).
+# Lets you exercise the check → download → restart flow against real releases without packaging first.
+provider: github
+owner: chargmak
+repo: geniex-studio

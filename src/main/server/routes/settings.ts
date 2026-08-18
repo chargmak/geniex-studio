@@ -54,7 +54,8 @@ const patchSchema = z
         instructions: z.string().max(20_000),
       })
       .partial(),
-    ui: z.object({ theme: z.enum(['dark', 'light']), closeToTray: z.boolean(), launchAtLogin: z.boolean() }).partial(),
+    ui: z.object({ theme: z.enum(['dark', 'light']), closeToTray: z.boolean(), launchAtLogin: z.boolean(), startMinimized: z.boolean() }).partial(),
+    updates: z.object({ autoCheck: z.boolean(), autoDownload: z.boolean(), channel: z.enum(['stable', 'beta']) }).partial(),
     onboarding: z.object({ completed: z.boolean() }).partial(),
   })
   .partial()

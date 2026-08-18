@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/uiStore'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { UpdatePill } from './UpdatePill'
 
 const TITLES: Record<string, string> = {
   chat: 'Chat',
@@ -36,6 +37,7 @@ export function TopBar({ children }: { children?: React.ReactNode }): React.JSX.
       <h1 className="text-sm font-[560] tracking-[0.01em] text-text-primary">{TITLES[section] ?? 'GenieX Studio'}</h1>
       <div className="app-no-drag flex min-w-0 flex-1 items-center gap-2">{children}</div>
       <div className="app-no-drag flex items-center gap-1">
+        <UpdatePill />
         <button type="button" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))} className="flex h-8 items-center gap-2 rounded-sm px-2 text-xs text-text-secondary hover:bg-surface-3 hover:text-text-primary" aria-label="Open command palette">
           <Search className="size-3.5" />
           <span className="hidden md:inline">Commands</span>

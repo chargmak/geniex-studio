@@ -36,7 +36,9 @@ win:
       arch:
         - arm64
   icon: resources/icon.png
-  artifactName: ${productName}-${version}-win-${arch}.${ext}
+  # No spaces: GitHub rewrites spaces in uploaded asset names, which would no longer match the URL in latest.yml
+  # and every auto-update download would 404.
+  artifactName: GenieX-Studio-${version}-win-${arch}.${ext}
 nsis:
   oneClick: false
   perMachine: false
@@ -44,4 +46,16 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: GenieX Studio
-publish: null
+  # Keep chats, settings and downloaded models when uninstalling; an update never touches them either.
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  # Adds Studio to Settings → Apps with a working "modify/uninstall" entry.
+  menuCategory: false
+  uninstallDisplayName: ${productName} ${version}
+# The .blockmap emitted next to the installer is what lets electron-updater download only changed blocks.
+publish:
+  - provider: github
+    owner: chargmak
+    repo: geniex-studio
+    # Uploaded as a draft; publishing the release on GitHub is what makes it visible to installed clients.
+    releaseType: draft
