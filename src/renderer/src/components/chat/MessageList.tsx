@@ -61,6 +61,17 @@ export function MessageList({
             }
             return null
           })}
+          {agent && agent.pendingApprovals.length > 1 && (
+            <div className="ml-10 mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+              <span>{agent.pendingApprovals.length} actions waiting for approval.</span>
+              <button type="button" className="h-6 rounded-sm bg-accent-soft px-2 font-medium text-accent-brand hover:bg-surface-4" onClick={() => void Promise.all(agent.pendingApprovals.map((r) => onDecide(r, 'allow')))}>
+                Allow all
+              </button>
+              <button type="button" className="h-6 rounded-sm px-2 hover:bg-surface-3" onClick={() => void Promise.all(agent.pendingApprovals.map((r) => onDecide(r, 'deny')))}>
+                Deny all
+              </button>
+            </div>
+          )}
           {agent?.pendingApprovals.map((r) => (
             <div key={r.id} className="ml-10">
               <ApprovalCard request={r} onDecide={(d) => onDecide(r, d)} />

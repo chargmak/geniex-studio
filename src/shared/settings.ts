@@ -19,6 +19,10 @@ export interface StudioSettings {
     autoStart: boolean
     /** Attach to an already running server on `host` instead of failing. */
     attachExisting: boolean
+    /** Optional QAIRT SDK root / folder of QNN libraries passed as --qairt-lib (null = the runtime bundled with GenieX). */
+    qairtLib: string | null
+    /** Optional model cache directory passed as --data-dir / GENIEX_DATADIR (null = ~/.cache/geniex). */
+    dataDir: string | null
   }
   defaults: {
     /** Preferred model id for new chats (null = first installed). */
@@ -27,10 +31,9 @@ export interface StudioSettings {
     agentModel: string | null
     sampler: Required<Pick<SamplerSettings, 'temperature' | 'top_p' | 'max_tokens'>> & SamplerSettings
     enableThink: boolean
-    /** GGUF compute unit. 'npu' (pinned Hexagon) is the reliable default on X Elite; 'hybrid' is faster per docs but crashed on 4B models here. QAIRT ignores this. */
+    /** GGUF compute unit. 'npu' (pinned Hexagon) is the default on X Elite; 'hybrid' adds the CPU scheduler. QAIRT ignores this. */
     computeGguf: ComputeUnit
     systemPrompt: string
-    keepCache: boolean
   }
   workspace: {
     root: string | null
@@ -74,6 +77,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     logLevel: 'info',
     autoStart: true,
     attachExisting: true,
+    qairtLib: null,
+    dataDir: null,
   },
   defaults: {
     chatModel: null,
@@ -83,7 +88,6 @@ export const DEFAULT_SETTINGS: StudioSettings = {
     enableThink: true,
     computeGguf: 'npu',
     systemPrompt: 'You are a helpful, precise assistant running locally on this device.',
-    keepCache: true,
   },
   workspace: { root: null },
   agent: {

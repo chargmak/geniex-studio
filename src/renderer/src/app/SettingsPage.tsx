@@ -138,6 +138,17 @@ export function SettingsPage(): React.JSX.Element {
                 <Row label="Attach to an already-running server" hint="If something else already runs geniex serve on the host, use it instead of failing.">
                   <Switch checked={g.attachExisting} onCheckedChange={(v) => void patch({ genie: { attachExisting: v } })} />
                 </Row>
+                <Row label="Models directory" hint="Where GenieX caches models (--data-dir). Empty = ~/.cache/geniex. Applies to downloads and the server after a restart.">
+                  <input defaultValue={g.dataDir ?? ''} placeholder="%USERPROFILE%\.cache\geniex" onBlur={(e) => void patch({ genie: { dataDir: e.target.value.trim() || null } })} className={cn(inputCls, 'flex-1 font-mono')} />
+                  {window.studio?.showOpenDialog && (
+                    <Button variant="secondary" size="sm" onClick={() => void window.studio!.showOpenDialog({ title: 'Choose the models directory', properties: ['openDirectory'] }).then((p) => { if (p[0]) void patch({ genie: { dataDir: p[0] } }) })}>
+                      <FolderOpen className="size-3.5" /> Browse
+                    </Button>
+                  )}
+                </Row>
+                <Row label="QAIRT runtime override (advanced)" hint={`Folder of QNN libraries or a QAIRT SDK root passed as --qairt-lib. Empty = the runtime bundled with GenieX (${genie?.qairtVersion ?? '?'}). Only for testing newer Qualcomm runtimes.`}>
+                  <input defaultValue={g.qairtLib ?? ''} placeholder="bundled" onBlur={(e) => void patch({ genie: { qairtLib: e.target.value.trim() || null } })} className={cn(inputCls, 'flex-1 font-mono')} />
+                </Row>
               </div>
               <div className="mt-3 flex items-center gap-2">
                 <Button variant="secondary" size="sm" onClick={() => void restart()} disabled={serverDirty}>
@@ -180,7 +191,7 @@ export function SettingsPage(): React.JSX.Element {
                 <Row label="Thinking mode by default" hint="Reasoning models (Qwen3) plan in a collapsible “thought process” before answering. Slower but smarter.">
                   <Switch checked={d.enableThink} onCheckedChange={(v) => void patch({ defaults: { enableThink: v } })} />
                 </Row>
-                <Row label="Compute for GGUF models" hint="npu = pinned to the Hexagon NPU (reliable default); hybrid = NPU + CPU scheduler (documented as fastest, but crashed on 4B models here); QAIRT bundles ignore this.">
+                <Row label="Compute for GGUF models" hint="npu = pinned to the Hexagon NPU (default); hybrid = NPU + CPU scheduler (slower to load, can decode a little faster); QAIRT bundles ignore this.">
                   <select value={d.computeGguf} onChange={(e) => void patch({ defaults: { computeGguf: e.target.value } })} className={cn(inputCls, 'w-40')}>
                     {(['npu', 'hybrid', 'gpu', 'cpu'] as ComputeUnit[]).map((c) => (
                       <option key={c} value={c}>
@@ -188,9 +199,6 @@ export function SettingsPage(): React.JSX.Element {
                       </option>
                     ))}
                   </select>
-                </Row>
-                <Row label="Reuse KV cache between turns" hint="Sends GenieX-KeepCache so unchanged history isn’t re-prefilled. Turn off if answers look stale.">
-                  <Switch checked={d.keepCache} onCheckedChange={(v) => void patch({ defaults: { keepCache: v } })} />
                 </Row>
                 <Row label="Sampling defaults" hint="temperature · top-p · max tokens">
                   <input type="number" step={0.05} min={0} max={2} defaultValue={d.sampler.temperature} onBlur={(e) => void patch({ defaults: { sampler: { temperature: Number(e.target.value) } } })} className={cn(inputCls, 'w-20 tabular-nums')} title="temperature" />

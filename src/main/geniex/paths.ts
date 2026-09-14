@@ -2,6 +2,7 @@ import { accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { currentGeniexEnv } from './cli'
 
 /**
  * Locates geniex.exe. The Windows installer (Inno Setup) does NOT add it to PATH, so the default location
@@ -39,9 +40,9 @@ export function findGenieXCli(override?: string | null): string | null {
   return null
 }
 
-/** GenieX's model cache root (models/, aihub/, config.json). Honors GENIEX_DATADIR like the CLI does. */
+/** GenieX's model cache root (models/, aihub/, config.json): the Settings override, else GENIEX_DATADIR, else the CLI default. */
 export function genieXDataDir(): string {
-  return process.env.GENIEX_DATADIR ?? join(homedir(), '.cache', 'geniex')
+  return currentGeniexEnv().dataDir ?? process.env.GENIEX_DATADIR ?? join(homedir(), '.cache', 'geniex')
 }
 
 export function genieXModelsDir(): string {

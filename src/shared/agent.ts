@@ -55,7 +55,7 @@ export type AgentEvent =
   | { type: 'turn'; index: number; maxTurns: number }
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
-  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; maxTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
   | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
   | { type: 'tool-call'; callId: string; tool: string; args: Record<string, unknown>; summary: string; risk: ToolRisk }
   | { type: 'approval-request'; request: ApprovalRequest }

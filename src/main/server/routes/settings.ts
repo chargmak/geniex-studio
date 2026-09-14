@@ -19,6 +19,8 @@ const patchSchema = z
         logLevel: z.enum(['none', 'error', 'warn', 'info', 'debug', 'trace']),
         autoStart: z.boolean(),
         attachExisting: z.boolean(),
+        qairtLib: z.string().max(1024).nullable(),
+        dataDir: z.string().max(1024).nullable(),
       })
       .partial(),
     defaults: z
@@ -42,7 +44,6 @@ const patchSchema = z
         enableThink: z.boolean(),
         computeGguf: computeSchema,
         systemPrompt: z.string().max(20_000),
-        keepCache: z.boolean(),
       })
       .partial(),
     workspace: z.object({ root: z.string().nullable() }).partial(),

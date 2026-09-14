@@ -4,7 +4,8 @@ import type { KnowledgeHit } from '@shared/sidecar'
 import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from './prompt'
-import { pickAutoModel } from '../geniex/select'
+import { clampMaxTokens, CONTEXT_MARGIN, isContextOverflowCode, MIN_MAX_TOKENS } from './context'
+import { findInstalled, pickAutoModel } from '../geniex/select'
 
 export interface TurnRequest {
   conversationId: string
@@ -32,10 +33,19 @@ export type TurnEvent =
   | ChatStreamEvent
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
-  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; maxTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
   | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
 
 const QAIRT_CONTEXT = 4096
+
+/** Studio refuses to talk to a CLI older than MIN_GENIEX_VERSION rather than carry two protocol variants. */
+export function cliVersionGateError(ctx: AppContext): string | null {
+  const st = ctx.genie.status()
+  if (st.cliVersionOk === false) {
+    return `GenieX CLI ${st.cliVersion} is older than the ${st.requiredCliVersion} this version of Studio needs. Run "geniex update" (or reinstall from geniex.aihub.qualcomm.com) and restart the server.`
+  }
+  return null
+}
 
 /**
  * Runs one assistant turn for a conversation: persists the user message, streams the model, persists the
@@ -58,7 +68,7 @@ export class TurnRunner {
   }
 
   async *run(req: TurnRequest): AsyncGenerator<TurnEvent> {
-    const { repos, settings, models, client } = this.ctx
+    const { repos, settings, models, client, contextTracker } = this.ctx
     const conv0 = repos.conversations.get(req.conversationId)
     if (!conv0) {
       yield { type: 'error', message: 'conversation not found', status: 404 }
@@ -66,6 +76,11 @@ export class TurnRunner {
     }
     if (this.active.has(conv0.id)) {
       yield { type: 'error', message: 'a turn is already running for this conversation', status: 409 }
+      return
+    }
+    const gate = cliVersionGateError(this.ctx)
+    if (gate) {
+      yield { type: 'error', message: gate, status: 428 }
       return
     }
     const ac = new AbortController()
@@ -76,20 +91,20 @@ export class TurnRunner {
       const installed = await models.list().catch(() => [])
       const s = settings.get()
       const crashed = this.ctx.genie.crashLog.all()
-      // Never auto-walk into a model that already killed the runtime here (see pickAutoModel / issue #1154).
+      // Never auto-walk into a model that already killed the runtime here (see pickAutoModel).
       let model = req.model ?? conv0.model ?? pickAutoModel(installed, { crashed, preferred: s.defaults.chatModel })
       if (!model) {
         yield { type: 'error', message: 'No model available. Pull a model from the Models page first.', status: 400 }
         return
       }
-      const info = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
-      if (!info && installed.length) {
+      if (!findInstalled(installed, model) && installed.length) {
         // A stale saved model — fall back to the best healthy one and persist.
         model = pickAutoModel(installed, { crashed, preferred: s.defaults.chatModel }) ?? model
       }
-      const modelInfo = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
+      const modelInfo = findInstalled(installed, model)
       const isVlm = modelInfo?.type === 'vlm'
       const isQairt = modelInfo?.runtime === 'qairt'
+      const runtime = modelInfo ? (isQairt ? 'qairt' : 'llama_cpp') : null
 
       // ---------------------------------------------------------- persist conversation-level changes
       let conv = conv0
@@ -135,16 +150,24 @@ export class TurnRunner {
       const history = repos.messages.list(conv.id)
       const sampler: SamplerSettings = { ...s.defaults.sampler, ...(conv.settings.sampler ?? {}), ...(req.sampler ?? {}) }
       const options: GenieRequestOptions = { ...(conv.settings.options ?? {}), ...(req.options ?? {}) }
-      if (options.enable_think === undefined) options.enable_think = conv.settings.enableThink ?? s.defaults.enableThink
+      const wantThink = options.enable_think ?? conv.settings.enableThink ?? s.defaults.enableThink
+      options.enable_think = wantThink
       if (!isQairt && options.compute === undefined) options.compute = s.defaults.computeGguf
+      // QAIRT Qwen3 bundles ignore enable_think=false and put the thinking into `content`. Asking for thinking and
+      // routing it to reasoning_content (then hiding it) is the only way to keep it out of the answer.
+      const suppressReasoning = isQairt && !wantThink
       if (isQairt) {
-        // QAIRT bundles ignore nctx/ngl and always run on the NPU; sending compute would be coerced anyway.
+        options.enable_think = true
+        // QAIRT bundles ignore nctx/ngl/spec_* and always run on the NPU; sending compute would be coerced anyway.
         delete options.compute
         delete options.nctx
         delete options.ngl
+        delete options.spec_type
+        delete options.spec_draft_model
       }
       const contextTokens = isQairt ? QAIRT_CONTEXT : (options.nctx ?? s.genie.nctx)
       const maxTokens = sampler.max_tokens ?? 2048
+      const tokenFactor = contextTracker.factorFor(conv.id)
 
       // ---------------------------------------------------------- knowledge retrieval (RAG)
       const extraSections = [...(req.extraSections ?? [])]
@@ -172,10 +195,20 @@ export class TurnRunner {
         contextTokens,
         maxTokens: Math.min(maxTokens, Math.floor(contextTokens / 2)),
         vision: !!isVlm,
+        // llama.cpp VLMs see media on every message (and keep the KV cache); QAIRT VLMs are untested → last only.
+        mediaHistory: !!isVlm && !isQairt,
         extraSections,
+        tokenFactor,
       })
       if (citations && assembled.droppedSections.includes('knowledge')) citations = null
-      yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
+      // Nothing left to trim and still over the window: refuse rather than let the NPU backend abort.
+      if (assembled.estimatedTokens + MIN_MAX_TOKENS + CONTEXT_MARGIN > contextTokens) {
+        yield { type: 'error', message: `This message is too long for the model's context window (≈${assembled.estimatedTokens} of ${contextTokens} tokens with the system prompt). Shorten it, or raise the context window for GGUF models in Settings → GenieX server.`, code: 'context_length_exceeded', status: 413 }
+        return
+      }
+      // Never let generation run past the window: on the NPU that kills the server (see ContextTracker).
+      const maxTokensForRequest = clampMaxTokens(contextTokens, assembled.estimatedTokens, maxTokens)
+      yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, maxTokens: maxTokensForRequest, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
 
       // ---------------------------------------------------------- assistant placeholder
       let assistant = repos.messages.insert({ conversationId: conv.id, role: 'assistant', content: '', reasoning: null, toolCalls: null, toolCallId: null, name: null, model, status: 'streaming', error: null, metrics: null })
@@ -184,8 +217,10 @@ export class TurnRunner {
       // ---------------------------------------------------------- stream
       let content = ''
       let reasoning = ''
+      /** Reasoning the user asked not to see (QAIRT ignores enable_think=false). Kept in case the model stops without an answer. */
+      let hiddenReasoning = ''
       let toolCalls: StoredMessage['toolCalls'] = null
-      const metrics: MessageMetrics = { compute: options.compute ?? (isQairt ? 'npu' : null), citations }
+      const metrics: MessageMetrics = { compute: options.compute ?? (isQairt ? 'npu' : null), citations, specType: !isQairt && options.spec_type ? options.spec_type : null }
       let finished = false
       let lastFlush = Date.now()
 
@@ -194,16 +229,21 @@ export class TurnRunner {
       }
 
       try {
-        for await (const ev of client.chatStream({ model, messages: assembled.messages, tools: req.tools, sampler, options, conversationId: conv.id }, ac.signal)) {
+        const stream = client.chatStream({ model, messages: assembled.messages, tools: req.tools, sampler: { ...sampler, max_tokens: maxTokensForRequest }, options, conversationId: conv.id, runtime }, ac.signal)
+        for await (const ev of stream) {
           switch (ev.type) {
-            case 'delta':
+            case 'delta': {
               if (ev.content) content += ev.content
-              if (ev.reasoning) reasoning += ev.reasoning
+              if (ev.reasoning && suppressReasoning) hiddenReasoning += ev.reasoning
+              else if (ev.reasoning) reasoning += ev.reasoning
               if (Date.now() - lastFlush > 1500) {
                 flush()
                 lastFlush = Date.now()
               }
-              break
+              if (suppressReasoning && !ev.content) continue // drop reasoning-only deltas the user asked not to see
+              yield suppressReasoning ? { type: 'delta', content: ev.content } : ev
+              continue
+            }
             case 'model-ready':
               metrics.loadMs = ev.loadMs
               break
@@ -213,6 +253,11 @@ export class TurnRunner {
             case 'usage':
               metrics.promptTokens = ev.prompt_tokens
               metrics.completionTokens = ev.completion_tokens
+              if (ev.accepted !== undefined) {
+                metrics.acceptedTokens = ev.accepted
+                metrics.rejectedTokens = ev.rejected ?? 0
+              }
+              contextTracker.observe(conv.id, assembled.rawTokens, ev.prompt_tokens)
               break
             case 'done':
               metrics.ttftMs = ev.ttftMs
@@ -221,12 +266,20 @@ export class TurnRunner {
               metrics.completionTokens = metrics.completionTokens ?? ev.completionTokens
               metrics.finishReason = ev.finish_reason
               finished = true
+              if (!content.trim() && hiddenReasoning.trim() && ev.finish_reason !== 'cancelled') {
+                // Small QAIRT models sometimes stop right after the think block: better the thoughts than a blank bubble.
+                content = hiddenReasoning.trim()
+                yield { type: 'delta', content }
+              }
               flush(ev.finish_reason === 'cancelled' ? 'cancelled' : 'complete')
               break
-            case 'error':
+            case 'error': {
               finished = true
+              // The estimate was wrong: pad harder for the rest of this conversation so the next turn fits.
+              if (isContextOverflowCode(ev.code)) contextTracker.bump(conv.id)
               assistant = repos.messages.update(assistant.id, { content, reasoning: reasoning || null, status: 'error', error: ev.message, metrics }) ?? assistant
               break
+            }
           }
           yield ev
         }

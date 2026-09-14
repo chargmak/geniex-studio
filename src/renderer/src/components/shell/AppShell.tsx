@@ -5,6 +5,7 @@ import { TopBar } from './TopBar'
 import { TopBarSlotProvider, TopBarSlotOutlet } from './topBarSlot'
 import { Onboarding } from './Onboarding'
 import { CommandPalette } from './CommandPalette'
+import { CliVersionBanner } from './CliVersionBanner'
 
 /** Root frame: sidebar · (top bar + routed content). Height-bounded so nested App-UI blocks can scroll internally. */
 export function AppShell(): React.JSX.Element {
@@ -17,6 +18,7 @@ export function AppShell(): React.JSX.Element {
             <TopBar>
               <TopBarSlotOutlet />
             </TopBar>
+            <CliVersionBanner />
             <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
               <Outlet />
             </main>

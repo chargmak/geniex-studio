@@ -89,6 +89,28 @@ describe('assemblePrompt', () => {
     expect(r.messages.at(-1)).toMatchObject({ role: 'user', content: 'final' })
     expect(r.estimatedTokens).toBeLessThanOrEqual(2048 - 256)
   })
+  it('keeps media on earlier messages when mediaHistory is on (llama.cpp VLMs)', () => {
+    const att = { id: 'a1', messageId: null, conversationId: 'c', kind: 'image' as const, name: 'p.png', mime: 'image/png', size: 1, path: 'C:/p.png', width: 1, height: 1, createdAt: 0 }
+    const history = [msg('user', 'first', { attachments: [att] }), msg('assistant', 'ok'), msg('user', 'look', { attachments: [att] })]
+    const r = assemblePrompt(history, { systemPrompt: null, contextTokens: 4096, maxTokens: 256, vision: true, mediaHistory: true })
+    expect(Array.isArray(r.messages[0].content)).toBe(true)
+    expect(Array.isArray(r.messages[2].content)).toBe(true)
+    expect(r.imagesStripped).toBe(0)
+  })
+  it('pads the estimate by tokenFactor and reports the raw estimate alongside', () => {
+    const r = assemblePrompt([msg('user', 'x'.repeat(3600))], { systemPrompt: null, contextTokens: 8192, maxTokens: 256, vision: false, tokenFactor: 1.5 })
+    expect(r.rawTokens).toBe(1004)
+    expect(r.estimatedTokens).toBe(1504)
+  })
+  it('trims history in a block (down to ~60 % of the budget) so following turns stay KV-cache continuations', () => {
+    const line = 'y'.repeat(360) // 100 tokens + 4 overhead each
+    const history = Array.from({ length: 40 }, (_, i) => msg(i % 2 ? 'assistant' : 'user', line))
+    const r = assemblePrompt(history, { systemPrompt: null, contextTokens: 2048, maxTokens: 256, vision: false })
+    // budget = 2048-256-256 = 1536; a one-at-a-time trim would leave ~14 messages, a block trim ~8.
+    expect(r.droppedHistory).toBeGreaterThan(26)
+    expect(r.estimatedTokens).toBeLessThanOrEqual(Math.floor(1536 * 0.6))
+    expect(r.messages.at(-1)).toMatchObject({ role: 'assistant' })
+  })
   it('only sends media from the last message and only for vision models', () => {
     const att = { id: 'a1', messageId: null, conversationId: 'c', kind: 'image' as const, name: 'p.png', mime: 'image/png', size: 1, path: 'C:/p.png', width: 1, height: 1, createdAt: 0 }
     const history = [msg('user', 'first', { attachments: [att] }), msg('assistant', 'ok'), msg('user', 'look', { attachments: [att] })]

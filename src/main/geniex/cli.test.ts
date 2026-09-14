@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { compareVersions, isCliVersionSupported } from '@shared/config'
 import { classifyHub, parseCatalogueTable, parseChipset, parseListJson, parseVersion } from './cli'
 import { parseProgressLine } from './pulls'
 
@@ -6,6 +7,23 @@ describe('parseVersion', () => {
   it('reads the three version lines printed by geniex version', () => {
     const v = parseVersion('GenieX CLI Version:     v0.4.0\nQAIRT Runtime Version:  v2.45.0.260326\nLlamaCPP Runtime Hash:  6ba5ef2\n')
     expect(v).toMatchObject({ cli: 'v0.4.0', qairt: 'v2.45.0.260326', llamaCppHash: '6ba5ef2' })
+  })
+  it('reads the shorter form v0.6.1 prints', () => {
+    const v = parseVersion('GenieX CLI Version:     v0.6.1\nQAIRT Runtime Version:  2.45\nLlamaCPP Runtime Hash:  0eadefe\n')
+    expect(v).toMatchObject({ cli: 'v0.6.1', qairt: '2.45', llamaCppHash: '0eadefe' })
+  })
+})
+
+describe('version gate', () => {
+  it('compares GenieX versions numerically and gates on MIN_GENIEX_VERSION', () => {
+    expect(compareVersions('v0.6.1', '0.6.0')).toBeGreaterThan(0)
+    expect(compareVersions('v0.10.0', 'v0.9.9')).toBeGreaterThan(0)
+    expect(compareVersions('0.6.0', 'v0.6.0')).toBe(0)
+    expect(isCliVersionSupported('v0.6.1')).toBe(true)
+    expect(isCliVersionSupported('v0.4.0')).toBe(false)
+    expect(isCliVersionSupported('v0.3.0-alpha.1')).toBe(false)
+    expect(isCliVersionSupported(null)).toBeNull()
+    expect(isCliVersionSupported('garbage')).toBeNull()
   })
 })
 

@@ -48,6 +48,10 @@ export interface MessageMetrics {
   completionTokens?: number | null
   finishReason?: string | null
   compute?: string | null
+  /** Speculative decoding (llama.cpp `spec_type`): draft tokens the target accepted / rejected this turn. */
+  acceptedTokens?: number | null
+  rejectedTokens?: number | null
+  specType?: string | null
   /** Knowledge-base excerpts that were injected for this reply (numbered as cited). */
   citations?: KnowledgeHit[] | null
 }

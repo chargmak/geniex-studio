@@ -12,11 +12,13 @@ import { PullManager } from './geniex/pulls'
 import { openDatabase } from './db'
 import { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from './db/repos'
 import { TurnRunner } from './chat/turns'
+import { ContextTracker } from './chat/context'
 import { AgentRunner } from './agent/loop'
 import { ApprovalCenter } from './agent/approvals'
 import { McpManager } from './mcp/manager'
 import { SidecarSupervisor } from './sidecar/supervisor'
 import { KnowledgeService } from './knowledge/service'
+import { GenieXBench } from './bench/geniexBench'
 
 export interface BootOptions {
   mode: AppContext['mode']
@@ -62,11 +64,13 @@ export async function boot(opts: BootOptions): Promise<Booted> {
     pulls,
     db,
     turns: null as unknown as TurnRunner,
+    contextTracker: new ContextTracker(),
     agent: null as unknown as AgentRunner,
     approvals: new ApprovalCenter(db, settings),
     mcp: new McpManager(db),
     sidecar: new SidecarSupervisor({ sourceDir: opts.sidecarSourceDir, home: join(dataDir, 'sidecar') }),
     knowledge: null as unknown as KnowledgeService,
+    bench: new GenieXBench(dataDir, genie),
     repos: {
       conversations: new ConversationRepo(db),
       messages: new MessageRepo(db),

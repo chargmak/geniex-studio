@@ -154,7 +154,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         {loading && (
           <div className="mb-2 inline-flex h-7 items-center gap-2 rounded-sm bg-surface-2 px-2 text-[13px] text-text-secondary hairline-subtle">
             <span className="job-dot bg-job-initializing animate-pulse" />
-            {stream!.phase === 'loading-model' ? 'Loading model into memory…' : 'Waiting for the model…'}
+            {stream!.note ?? (stream!.phase === 'loading-model' ? 'Loading model into memory…' : 'Waiting for the model…')}
           </div>
         )}
         <ThinkingFold text={reasoning} live={thinkingLive} durationMs={thinkMs} />
@@ -172,7 +172,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           </div>
         )}
         {message.status === 'cancelled' && <div className="mt-1 text-xs text-text-secondary">Stopped.</div>}
-        {message.metrics?.finishReason === 'length' && <div className="mt-1 text-xs text-warning">Reached the max tokens limit — raise “Max tokens” in the composer settings to continue longer answers.</div>}
+        {message.metrics?.finishReason === 'length' && <div className="mt-1 text-xs text-warning">Stopped at the token limit — the answer was cut short by “Max tokens” or by what was left of the context window. Ask it to continue, or raise the limit / context in Settings.</div>}
         {!live && (
           <div className="mt-1 flex h-7 items-center gap-0.5 text-text-secondary opacity-0 transition-opacity group-hover/msg:opacity-100">
             <CopyAction text={rawContent} />
@@ -188,6 +188,9 @@ export const AssistantMessage = memo(function AssistantMessage({
                 {m.ttftMs != null && <span>TTFT {formatDuration(m.ttftMs)}</span>}
                 {m.completionTokens != null && <span>{m.completionTokens} tok</span>}
                 {m.loadMs != null && m.loadMs > 500 && <span>load {formatDuration(m.loadMs)}</span>}
+                {m.specType && m.acceptedTokens != null && m.completionTokens ? (
+                  <span title={`Speculative decoding (${m.specType}): ${m.acceptedTokens} of ${m.completionTokens} tokens came from accepted drafts`}>spec {Math.round((m.acceptedTokens / m.completionTokens) * 100)}%</span>
+                ) : null}
                 {message.model && <span className={cn('truncate max-w-56')}>{message.model.split('/').pop()}</span>}
               </span>
             )}

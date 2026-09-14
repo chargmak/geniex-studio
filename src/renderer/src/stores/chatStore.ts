@@ -9,7 +9,7 @@ type TurnEvent =
   | ChatStreamEvent
   | { type: 'message'; message: StoredMessage }
   | { type: 'conversation'; conversation: Conversation }
-  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
+  | { type: 'prompt'; estimatedTokens: number; contextTokens: number; maxTokens: number; droppedHistory: number; droppedSections: string[]; imagesStripped: number }
   | { type: 'citations'; hits: KnowledgeHit[]; error?: string }
 
 export interface StreamState {
@@ -17,6 +17,8 @@ export interface StreamState {
   content: string
   reasoning: string
   phase: 'idle' | 'queued' | 'loading-model' | 'thinking' | 'answering' | 'done'
+  /** What the server is doing before tokens arrive (e.g. restarting GenieX for a runtime switch). */
+  note: string | null
   startedAt: number | null
   firstTokenAt: number | null
   loadMs: number | null
@@ -54,6 +56,8 @@ export interface AgentLive {
 export interface PromptInfo {
   estimatedTokens: number
   contextTokens: number
+  /** max_tokens actually sent after clamping to the remaining window. */
+  maxTokens: number
   droppedHistory: number
   droppedSections: string[]
   imagesStripped: number
@@ -64,6 +68,7 @@ const idleStream = (): StreamState => ({
   content: '',
   reasoning: '',
   phase: 'idle',
+  note: null,
   startedAt: null,
   firstTokenAt: null,
   loadMs: null,
@@ -224,10 +229,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }
     const id = convId
     const attachmentIds = opts.attachmentIds ?? get().pendingAttachments.map((a) => a.id)
+    // Image/audio encoding happens before the first token (≈7 s per image on this class of device); say so.
+    const mediaCount = get().pendingAttachments.filter((a) => attachmentIds.includes(a.id) && a.kind !== 'file').length
+    const mediaNote = mediaCount ? `Encoding ${mediaCount} attachment${mediaCount === 1 ? '' : 's'} on the NPU (≈7 s per image)…` : null
     const ac = new AbortController()
     controllers.set(id, ac)
     set((s) => ({
-      streams: { ...s.streams, [id]: { ...idleStream(), phase: 'queued', startedAt: Date.now() } },
+      streams: { ...s.streams, [id]: { ...idleStream(), phase: 'queued', note: mediaNote, startedAt: Date.now() } },
       pendingAttachments: [],
       draft: opts.editMessageId || opts.regenerate ? s.draft : '',
       error: null,
@@ -291,13 +299,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             set((s) => ({ streams: { ...s.streams, [id]: { ...cur, citations: ev.hits.length ? ev.hits : null, citationsError: ev.error ?? null } } }))
             break
           case 'prompt':
-            set((s) => ({ promptInfo: { ...s.promptInfo, [id]: { estimatedTokens: ev.estimatedTokens, contextTokens: ev.contextTokens, droppedHistory: ev.droppedHistory, droppedSections: ev.droppedSections, imagesStripped: ev.imagesStripped } } }))
+            set((s) => ({ promptInfo: { ...s.promptInfo, [id]: { estimatedTokens: ev.estimatedTokens, contextTokens: ev.contextTokens, maxTokens: ev.maxTokens, droppedHistory: ev.droppedHistory, droppedSections: ev.droppedSections, imagesStripped: ev.imagesStripped } } }))
+            break
+          case 'runtime-restart':
+            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, phase: 'loading-model', note: 'Restarting GenieX for the GGUF runtime (a QAIRT model was loaded)…' } } }))
             break
           case 'model-loading':
-            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, phase: 'loading-model' } } }))
+            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, phase: 'loading-model', note: null } } }))
             break
           case 'model-ready':
-            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, loadMs: ev.loadMs, phase: 'queued' } } }))
+            set((s) => ({ streams: { ...s.streams, [id]: { ...cur, loadMs: ev.loadMs, phase: 'queued', note: mediaNote } } }))
             break
           case 'delta': {
             const now = Date.now()

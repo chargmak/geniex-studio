@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Bot, Brain, FolderOpen, ImagePlus, MessageSquare, Paperclip, SlidersHorizontal, Square, X, Zap , BookOpen } from 'lucide-react'
+import { ArrowUp, BookOpen, Bot, Brain, FastForward, FolderOpen, ImagePlus, MessageSquare, Paperclip, SlidersHorizontal, Square, X, Zap } from 'lucide-react'
 import type { ComputeUnit } from '@shared/config'
 import type { Attachment } from '@shared/chat'
 import type { CachedModel, SamplerSettings } from '@shared/api'
@@ -15,14 +15,25 @@ const MAX_H = 220
 export interface ComposerSettings {
   enableThink: boolean
   compute: ComputeUnit
+  /** llama.cpp speculative decoding (`spec_type`); null = off. Draft-free n-gram modes need no second model. */
+  specType: string | null
   sampler: SamplerSettings
   /** Retrieval-augmented answers from the Knowledge page sources (needs the NPU sidecar + an indexed source). */
   knowledge: boolean
 }
 
+const SPEC_OPTIONS: { value: string | null; label: string; hint: string }[] = [
+  { value: null, label: 'Off', hint: 'Plain decoding' },
+  { value: 'ngram-cache', label: 'N-gram cache', hint: 'Recommended — reuses phrases seen earlier in the conversation (≈25 % faster on repetitive text here)' },
+  { value: 'ngram-simple', label: 'N-gram simple', hint: 'Cheaper lookup, lower acceptance' },
+  { value: 'ngram-map-k4v', label: 'N-gram map', hint: 'Keyed lookup tuned for code' },
+]
+const SPEC_LABEL: Record<string, string> = Object.fromEntries(SPEC_OPTIONS.filter((o) => o.value).map((o) => [o.value!, o.label]))
+
 const SLASH_COMMANDS: { cmd: string; hint: string; args?: string }[] = [
   { cmd: '/think', hint: 'Toggle thinking mode', args: 'on|off' },
   { cmd: '/compute', hint: 'Compute unit for GGUF models', args: 'npu|hybrid|gpu|cpu' },
+  { cmd: '/spec', hint: 'Speculative decoding for GGUF models', args: 'off|ngram-cache|ngram-simple|ngram-map-k4v' },
   { cmd: '/system', hint: 'Set the system prompt for this chat', args: 'text' },
   { cmd: '/temp', hint: 'Sampling temperature', args: '0–2' },
   { cmd: '/max', hint: 'Max tokens per answer', args: 'n' },
@@ -325,13 +336,37 @@ export function Composer({
                       <span className="text-[13px] font-medium uppercase text-text-primary">{cu}</span>
                       <span className="text-xs text-text-secondary">
                         {cu === 'npu' && 'Pinned to the Hexagon NPU — reliable default (Q4_0 GGUF; deterministic)'}
-                        {cu === 'hybrid' && 'NPU + CPU scheduler — documented as fastest, but experimental: crashed on 4B models with low free RAM here'}
+                        {cu === 'hybrid' && 'NPU + CPU scheduler — slower to load (~20 s) but can decode a little faster; keep an eye on free RAM'}
                         {cu === 'gpu' && 'Adreno GPU via OpenCL'}
                         {cu === 'cpu' && 'CPU only'}
                       </span>
                     </button>
                   ))}
                   <div className="px-2 py-1.5 text-[11px] text-text-disabled">Changing compute reloads the model. QAIRT bundles always run on the NPU.</div>
+                </PopoverContent>
+              </Popover>
+            )}
+            {!isQairt && modelInfo?.type !== 'vlm' && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className={cn('inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-[13px] text-text-secondary hover:bg-surface-3', settings.specType && 'text-accent-brand')} title="Speculative decoding">
+                    <FastForward className="size-3.5" />
+                    <span className="metadata-sm">{settings.specType ? SPEC_LABEL[settings.specType] ?? settings.specType : 'Speed'}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-1">
+                  {SPEC_OPTIONS.map((o) => (
+                    <button
+                      key={o.value ?? 'off'}
+                      type="button"
+                      onClick={() => onSettingsChange({ specType: o.value })}
+                      className={cn('flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-surface-4', (settings.specType ?? null) === o.value && 'bg-accent-soft')}
+                    >
+                      <span className="text-[13px] font-medium text-text-primary">{o.label}</span>
+                      <span className="text-xs text-text-secondary">{o.hint}</span>
+                    </button>
+                  ))}
+                  <div className="px-2 py-1.5 text-[11px] text-text-disabled">Draft-free speculation: the model verifies guesses taken from its own recent output, so repetitive text (code edits, rewrites, lists) decodes faster and prose is unchanged. Changing this reloads the model.</div>
                 </PopoverContent>
               </Popover>
             )}

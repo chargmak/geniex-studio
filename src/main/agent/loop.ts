@@ -3,14 +3,16 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import type { ChatToolCall, GenieRequestOptions, SamplerSettings } from '@shared/api'
-import type { AgentEvent, RunSummary, ToolRisk } from '@shared/agent'
+import type { AgentEvent, ApprovalDecision, RunSummary, ToolRisk } from '@shared/agent'
 import type { KnowledgeOptions, StoredMessage } from '@shared/chat'
 import type { KnowledgeHit } from '@shared/sidecar'
 import { KnowledgeService } from '../knowledge/service'
 import type { AppContext } from '../server/context'
 import { assemblePrompt } from '../chat/prompt'
+import { clampMaxTokens, CONTEXT_MARGIN, isContextOverflowCode, MIN_MAX_TOKENS } from '../chat/context'
+import { cliVersionGateError } from '../chat/turns'
 import { buildToolset } from './registry'
-import { pickAutoModel } from '../geniex/select'
+import { findInstalled, pickAutoModel } from '../geniex/select'
 import { toChatTool, type Tool } from './tools/types'
 
 export interface AgentRunRequest {
@@ -31,7 +33,7 @@ function agentInstructions(workspaceRoot: string, tools: Tool[], extra: string):
   return [
     `You are an autonomous assistant with tools, running locally on a Windows (Snapdragon) machine.`,
     `Workspace folder: ${workspaceRoot} — all file paths are relative to it. Shell = PowerShell.`,
-    `Rules: call ONE tool at a time and wait for its result. Use tools when you need real information or to change files; do not guess file contents. When the task is complete, reply with a plain final answer (no tool call). Keep answers concise. Never invent tool results.`,
+    `Rules: use tools when you need real information or to change files; do not guess file contents. You may request several independent tool calls in one turn (they run in order); when a call depends on another's result, wait for that result first. When the task is complete, reply with a plain final answer (no tool call). Keep answers concise. Never invent tool results.`,
     `Available tools:\n${list}`,
     extra.trim() ? `Additional instructions:\n${extra.trim()}` : '',
   ]
@@ -103,7 +105,7 @@ export function defaultWorkspaceRoot(): string {
   return p
 }
 
-/** Multi-turn tool loop on top of GenieX's OpenAI-style tool calling (one call per assistant turn). */
+/** Multi-turn tool loop on top of GenieX's OpenAI-style tool calling (several calls per turn since GenieX 0.6, run sequentially). */
 export class AgentRunner {
   private active = new Map<string, { ac: AbortController; conversationId: string; run: RunSummary }>()
 
@@ -153,6 +155,11 @@ export class AgentRunner {
       yield { type: 'error', message: 'a run is already active for this conversation', status: 409 }
       return
     }
+    const gate = cliVersionGateError(this.ctx)
+    if (gate) {
+      yield { type: 'error', message: gate, status: 428 }
+      return
+    }
 
     const s = settings.get()
     const workspaceRoot = conv0.workspaceRoot ?? s.workspace.root ?? defaultWorkspaceRoot()
@@ -164,11 +171,11 @@ export class AgentRunner {
       yield { type: 'error', message: 'No model available. Pull a model first.', status: 400 }
       return
     }
-    const info = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
-    if (!info && installed.length) model = pickAutoModel(installed, { crashed, preferred: s.defaults.agentModel ?? s.defaults.chatModel }) ?? model
-    const modelInfo = installed.find((m) => m.requestIds.includes(model!) || m.name === model)
+    if (!findInstalled(installed, model) && installed.length) model = pickAutoModel(installed, { crashed, preferred: s.defaults.agentModel ?? s.defaults.chatModel }) ?? model
+    const modelInfo = findInstalled(installed, model)
     const isQairt = modelInfo?.runtime === 'qairt'
     const isVlm = modelInfo?.type === 'vlm'
+    const runtime = modelInfo ? (isQairt ? 'qairt' : 'llama_cpp') : null
 
     const ac = new AbortController()
     const run: RunSummary = {
@@ -207,14 +214,19 @@ export class AgentRunner {
 
       const sampler: SamplerSettings = { ...s.defaults.sampler, ...(conv.settings.sampler ?? {}), ...(req.sampler ?? {}) }
       const options: GenieRequestOptions = { ...(conv.settings.options ?? {}), ...(req.options ?? {}) }
-      if (options.enable_think === undefined) options.enable_think = conv.settings.enableThink ?? s.defaults.enableThink
+      const wantThink = options.enable_think ?? conv.settings.enableThink ?? s.defaults.enableThink
+      options.enable_think = wantThink
       if (!isQairt && options.compute === undefined) options.compute = s.defaults.computeGguf
+      // QAIRT Qwen3 ignores enable_think=false (thinking lands in content): ask for it and hide reasoning instead.
+      const suppressReasoning = isQairt && !wantThink
       if (isQairt) {
+        options.enable_think = true
         delete options.compute
         delete options.nctx
         delete options.ngl
       }
       const contextTokens = isQairt ? QAIRT_CONTEXT : (options.nctx ?? s.genie.nctx)
+      const tokenFactor = this.ctx.contextTracker.factorFor(conv.id)
 
       // Knowledge retrieval once per run, on the user's request; the excerpts ride along on every turn (droppable).
       const kn = req.knowledge ?? conv.settings.knowledge
@@ -245,15 +257,25 @@ export class AgentRunner {
           contextTokens,
           maxTokens: Math.min(sampler.max_tokens ?? 2048, Math.floor(contextTokens / 2)),
           vision: !!isVlm,
+          mediaHistory: !!isVlm && !isQairt,
           extraSections: [{ label: 'agent', text: instructions, droppable: false }, ...(knowledgeSection ? [knowledgeSection] : [])],
+          tokenFactor,
         })
-        yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
+        if (assembled.estimatedTokens + MIN_MAX_TOKENS + CONTEXT_MARGIN > contextTokens) {
+          run.status = 'error'
+          run.error = `The prompt no longer fits the model's context window (≈${assembled.estimatedTokens} of ${contextTokens} tokens) even after trimming history. Start a new chat, shorten the tool output, or raise the context window in Settings.`
+          yield { type: 'error', message: run.error, code: 'context_length_exceeded', status: 413 }
+          break
+        }
+        const maxTokensForRequest = clampMaxTokens(contextTokens, assembled.estimatedTokens, sampler.max_tokens ?? 2048)
+        yield { type: 'prompt', estimatedTokens: assembled.estimatedTokens, contextTokens, maxTokens: maxTokensForRequest, droppedHistory: assembled.droppedHistory, droppedSections: assembled.droppedSections, imagesStripped: assembled.imagesStripped }
 
         let assistant = repos.messages.insert({ conversationId: conv.id, role: 'assistant', content: '', reasoning: null, toolCalls: null, toolCallId: null, name: null, model, status: 'streaming', error: null, metrics: null })
         yield { type: 'message', message: assistant }
 
         let content = ''
         let reasoning = ''
+        let hiddenReasoning = ''
         let toolCalls: ChatToolCall[] = []
         const metrics: StoredMessage['metrics'] = { compute: options.compute ?? (isQairt ? 'npu' : null), citations: turn === 1 && !assembled.droppedSections.includes('knowledge') ? citations : null }
         let streamError: string | null = null
@@ -261,11 +283,17 @@ export class AgentRunner {
         // On the very last turn, force a final answer by withholding tools.
         const toolsForTurn = turn === maxTurns ? undefined : chatTools
 
-        for await (const ev of client.chatStream({ model, messages: assembled.messages, tools: toolsForTurn, sampler, options, conversationId: conv.id }, ac.signal)) {
+        for await (const ev of client.chatStream({ model, messages: assembled.messages, tools: toolsForTurn, sampler: { ...sampler, max_tokens: maxTokensForRequest }, options, conversationId: conv.id, runtime }, ac.signal)) {
           switch (ev.type) {
             case 'delta':
               if (ev.content) content += ev.content
-              if (ev.reasoning) reasoning += ev.reasoning
+              if (ev.reasoning && suppressReasoning) hiddenReasoning += ev.reasoning
+              else if (ev.reasoning) reasoning += ev.reasoning
+              if (suppressReasoning) {
+                if (!ev.content) continue
+                yield { type: 'delta', content: ev.content }
+                continue
+              }
               break
             case 'tool_calls':
               toolCalls = ev.tool_calls
@@ -276,6 +304,7 @@ export class AgentRunner {
             case 'usage':
               metrics.promptTokens = ev.prompt_tokens
               metrics.completionTokens = ev.completion_tokens
+              this.ctx.contextTracker.observe(conv.id, assembled.rawTokens, ev.prompt_tokens)
               break
             case 'done':
               metrics.ttftMs = ev.ttftMs
@@ -286,6 +315,7 @@ export class AgentRunner {
               break
             case 'error':
               streamError = ev.message
+              if (isContextOverflowCode(ev.code)) this.ctx.contextTracker.bump(conv.id)
               break
           }
           yield ev
@@ -303,6 +333,11 @@ export class AgentRunner {
           yield { type: 'message', message: assistant }
           run.status = 'cancelled'
           break
+        }
+
+        if (!content.trim() && !toolCalls.length && hiddenReasoning.trim()) {
+          content = hiddenReasoning.trim()
+          yield { type: 'delta', content }
         }
 
         // Fallback: tool call printed as text.
@@ -323,17 +358,41 @@ export class AgentRunner {
           break
         }
 
-        // Execute tool calls sequentially (GenieX yields one per turn; handle several defensively).
+        // Plan every call of the turn first (GenieX 0.6 streams several per turn): announce them all, and raise
+        // every approval that is needed at once, so the user answers one batch instead of one card per call.
+        type Planned = { call: ChatToolCall; tool: Tool | undefined; parsed: ReturnType<typeof parseToolArgs>; summary: string; risk: ToolRisk; decision: 'allow' | 'deny' | 'ask'; pending: Promise<ApprovalDecision> | null; requestId: string | null }
+        const planned: Planned[] = []
         for (const call of toolCalls) {
-          if (ac.signal.aborted) break
           const tool = tools.find((t) => t.name === call.function.name)
           const parsed = parseToolArgs(call.function.arguments)
-          const args = parsed.args
-          const summary = tool ? tool.summarize(args) : `Unknown tool ${call.function.name}`
+          const summary = tool ? tool.summarize(parsed.args) : `Unknown tool ${call.function.name}`
           const risk: ToolRisk = tool?.risk ?? 'exec'
           run.toolCalls++
-          yield { type: 'tool-call', callId: call.id, tool: call.function.name, args, summary, risk }
-          this.event(run.id, 'tool-call', { callId: call.id, tool: call.function.name, args, summary })
+          yield { type: 'tool-call', callId: call.id, tool: call.function.name, args: parsed.args, summary, risk }
+          this.event(run.id, 'tool-call', { callId: call.id, tool: call.function.name, args: parsed.args, summary })
+          const decision = tool && !parsed.error ? approvals.decide(tool.name, tool.risk, tool.needsApproval(parsed.args), summary) : 'allow'
+          planned.push({ call, tool, parsed, summary, risk, decision, pending: null, requestId: null })
+        }
+        const asks = planned.filter((p) => p.decision === 'ask')
+        if (asks.length) {
+          run.status = 'waiting_approval'
+          this.saveRun(run)
+          yield { type: 'run-update', run }
+          for (const p of asks) {
+            // Emit the request via the approvals center so the route can forward it; answered below, in order.
+            p.pending = approvals.request({ runId: run.id, tool: p.tool!.name, risk: p.tool!.risk, args: p.parsed.args, summary: p.summary }, ac.signal)
+            const reqObj = approvals.listPending(run.id).at(-1)!
+            p.requestId = reqObj.id
+            yield { type: 'approval-request', request: reqObj }
+          }
+        }
+
+        // Execute sequentially, in the order the model emitted the calls.
+        let remainingAsks = asks.length
+        for (const p of planned) {
+          if (ac.signal.aborted) break
+          const { call, tool, parsed, summary } = p
+          const args = parsed.args
 
           let ok = false
           let result = ''
@@ -344,24 +403,18 @@ export class AgentRunner {
           } else if (parsed.error) {
             result = `Could not parse arguments (${parsed.error}). Send valid JSON matching the tool's parameters.`
           } else {
-            const decision = approvals.decide(tool.name, tool.risk, tool.needsApproval(args), summary)
+            const decision = p.decision
             let allowed = decision === 'allow'
-            if (decision === 'ask') {
-              run.status = 'waiting_approval'
-              this.saveRun(run)
-              yield { type: 'run-update', run }
-              const request = { runId: run.id, tool: tool.name, risk: tool.risk, args, summary }
-              // Emit the request via the approvals center so the route can forward it, and await the answer.
-              const pending = approvals.request(request, ac.signal)
-              const reqObj = approvals.listPending(run.id).at(-1)!
-              yield { type: 'approval-request', request: reqObj }
-              const d = await pending
-              yield { type: 'approval-decision', requestId: reqObj.id, decision: d }
-              this.event(run.id, 'approval', { requestId: reqObj.id, decision: d, tool: tool.name, summary })
+            if (decision === 'ask' && p.pending) {
+              const d = await p.pending
+              yield { type: 'approval-decision', requestId: p.requestId!, decision: d }
+              this.event(run.id, 'approval', { requestId: p.requestId, decision: d, tool: tool.name, summary })
               allowed = d === 'allow' || d === 'allow-always'
-              run.status = 'running'
-              this.saveRun(run)
-              yield { type: 'run-update', run }
+              if (--remainingAsks === 0) {
+                run.status = 'running'
+                this.saveRun(run)
+                yield { type: 'run-update', run }
+              }
             }
             if (!allowed) {
               result = decision === 'deny' ? 'This action is blocked by a deny rule.' : 'The user declined this action. Ask for an alternative or explain what you would need.'

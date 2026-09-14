@@ -72,7 +72,7 @@ export function ChatView(): React.JSX.Element {
 
   // Same auto-pick the server would make (@shared/modelSelect): the composer has to *show* a model before the
   // turn is sent, and it sends that model explicitly — so a naive `installed[0]` fallback here would silently
-  // bypass the crash avoidance and walk straight back into a model known to kill the runtime (issue #1154).
+  // bypass the crash avoidance and walk straight back into a model known to kill the runtime.
   const autoModel = useMemo(
     () => pickAutoModel(installed, { crashed: genie?.crashedModels, preferred: (mode === 'agent' ? defaults?.defaults.agentModel : null) ?? defaults?.defaults.chatModel }),
     [installed, genie?.crashedModels, defaults?.defaults.agentModel, defaults?.defaults.chatModel, mode],
@@ -83,6 +83,7 @@ export function ChatView(): React.JSX.Element {
     () => ({
       enableThink: localSettings.enableThink ?? conversation?.settings.enableThink ?? defaults?.defaults.enableThink ?? true,
       compute: (localSettings.compute ?? conversation?.settings.options?.compute ?? defaults?.defaults.computeGguf ?? 'npu') as ComputeUnit,
+      specType: localSettings.specType !== undefined ? localSettings.specType : (conversation?.settings.options?.spec_type ?? null),
       sampler: localSettings.sampler ?? conversation?.settings.sampler ?? defaults?.defaults.sampler ?? {},
       knowledge: localSettings.knowledge ?? conversation?.settings.knowledge?.enabled ?? false,
     }),
@@ -106,6 +107,7 @@ export function ChatView(): React.JSX.Element {
         const settings = { ...conversation.settings }
         if (patch.enableThink !== undefined) settings.enableThink = patch.enableThink
         if (patch.compute !== undefined) settings.options = { ...(settings.options ?? {}), compute: patch.compute }
+        if (patch.specType !== undefined) settings.options = { ...(settings.options ?? {}), spec_type: patch.specType ?? undefined }
         if (patch.sampler !== undefined) settings.sampler = patch.sampler
         if (patch.knowledge !== undefined) settings.knowledge = { ...(settings.knowledge ?? {}), enabled: patch.knowledge }
         void updateConversation(activeId, { settings })
@@ -128,7 +130,7 @@ export function ChatView(): React.JSX.Element {
 
   const doSend = useCallback(
     (text: string) => {
-      const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute } : {}) }
+      const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute, spec_type: composerSettings.specType ?? undefined } : {}) }
       void send({ text, mode, model: model ?? undefined, sampler: composerSettings.sampler, options, editMessageId: editing?.id, knowledge: { enabled: composerSettings.knowledge } })
       if (editing) setEditing(null)
     },
@@ -137,7 +139,7 @@ export function ChatView(): React.JSX.Element {
 
   const onRegenerate = useCallback(() => {
     if (busy) return
-    const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute } : {}) }
+    const options = { enable_think: composerSettings.enableThink, ...(modelInfo?.runtime !== 'qairt' ? { compute: composerSettings.compute, spec_type: composerSettings.specType ?? undefined } : {}) }
     void send({ text: '', regenerate: true, model: model ?? undefined, sampler: composerSettings.sampler, options, knowledge: { enabled: composerSettings.knowledge } })
   }, [busy, composerSettings, model, modelInfo?.runtime, send])
 
@@ -159,6 +161,10 @@ export function ChatView(): React.JSX.Element {
           return true
         case '/compute':
           if (/^(npu|hybrid|gpu|cpu)$/i.test(arg)) persistSettings({ compute: arg.toLowerCase() as ComputeUnit })
+          return true
+        case '/spec':
+          if (/^(off|none|0|false)$/i.test(arg) || !arg) persistSettings({ specType: null })
+          else if (/^(ngram-(cache|simple|map-k|map-k4v|mod)|draft-\w+)$/i.test(arg)) persistSettings({ specType: arg.toLowerCase() })
           return true
         case '/temp':
           if (arg && !Number.isNaN(Number(arg))) persistSettings({ sampler: { ...composerSettings.sampler, temperature: Number(arg) } })

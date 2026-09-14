@@ -3,4 +3,4 @@
  * the composer needs to *show* the model before the turn is sent, and a UI-side "just take the first
  * installed model" fallback would silently defeat the crash avoidance below.
  */
-export { crashCount, crashRecordFor, pickAutoModel, type AutoPickOptions, type CrashRecord } from '@shared/modelSelect'
+export { bareModelName, crashCount, crashRecordFor, findInstalled, pickAutoModel, runtimeOfModel, type AutoPickOptions, type CrashRecord } from '@shared/modelSelect'

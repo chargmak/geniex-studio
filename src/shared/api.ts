@@ -29,6 +29,9 @@ export interface GenieServerStatus {
   cliPath: string | null
   cliFound: boolean
   cliVersion: string | null
+  /** Whether the CLI meets MIN_GENIEX_VERSION; null while unknown. Studio refuses to chat below it. */
+  cliVersionOk: boolean | null
+  requiredCliVersion: string
   qairtVersion: string | null
   llamaCppHash: string | null
   chipset: string | null
@@ -41,11 +44,23 @@ export interface GenieServerStatus {
   busy: boolean
   queueDepth: number
   settings: GenieServeSettings
-  /** Last unexpected process exit (e.g. QAIRT access violation while loading a model). */
-  lastCrash: { at: number; code: string; model: string | null } | null
-  /** Models whose load has crashed the server on this machine → UI warns and suggests GGUF alternatives. */
-  crashedModels: Record<string, { count: number; lastAt: number; code: string }>
+  /** Last unexpected process exit. `kind` says whether a model load did it or a context overflow on the NPU. */
+  lastCrash: { at: number; code: string; model: string | null; kind: CrashKind } | null
+  /** Models whose load has crashed the server on this machine (this CLI version) → UI warns, auto-pick avoids them. */
+  crashedModels: Record<string, { count: number; lastAt: number; code: string; cliVersion?: string | null }>
+  /**
+   * A QAIRT bundle has been loaded in this `serve` process. llama.cpp cannot open its Hexagon session after that
+   * (GenieX v0.6.1: `HTP0 failed to open session : error 0x80000406`), so the next GGUF request restarts the server.
+   */
+  qairtLoadedSinceStart: boolean
 }
+
+/**
+ * 'model' — the process died while loading/running a model (recorded against it);
+ * 'context_overflow' — llama.cpp on the NPU tried a context shift and aborted (a GenieX bug, not the model's fault);
+ * 'unknown' — nothing was in flight.
+ */
+export type CrashKind = 'model' | 'context_overflow' | 'unknown'
 
 export interface GenieServeSettings {
   host: string
@@ -161,7 +176,6 @@ export interface GenieRequestOptions {
   spec_n_max?: number
   spec_n_min?: number
   spec_p_min?: number
-  keepCache?: boolean
 }
 
 export interface ChatRequestBody {
@@ -172,6 +186,8 @@ export interface ChatRequestBody {
   options?: GenieRequestOptions
   /** Studio conversation id for bookkeeping/telemetry (optional). */
   conversationId?: string
+  /** Runtime family of `model` when the caller knows it (drives the QAIRT → GGUF server restart). */
+  runtime?: Runtime | null
 }
 
 /** Server-sent events emitted by /api/genie/chat. */
@@ -179,6 +195,8 @@ export type ChatStreamEvent =
   | { type: 'start'; model: string; requestId: string; at: number }
   | { type: 'model-loading'; model: string }
   | { type: 'model-ready'; model: string; loadMs: number }
+  /** `geniex serve` is being restarted before this request (QAIRT → GGUF switch). */
+  | { type: 'runtime-restart'; reason: string }
   | { type: 'delta'; content?: string; reasoning?: string }
   | { type: 'tool_calls'; tool_calls: ChatToolCall[] }
   | { type: 'usage'; prompt_tokens: number; completion_tokens: number; total_tokens: number; accepted?: number; rejected?: number }
@@ -199,6 +217,54 @@ export interface CompletionRequestBody {
   sampler?: SamplerSettings
   stop?: string[]
   options?: GenieRequestOptions
+}
+
+// ---------- /api/system/bench (geniex-bench) ----------
+export interface BenchStatus {
+  installed: boolean
+  version: string | null
+  path: string | null
+  downloadUrl: string
+  running: { model: string; startedAt: number } | null
+  installing: boolean
+}
+
+export interface BenchRunRequest {
+  /** Model-manager id (`org/repo[:quant]`), i.e. a Studio request id. */
+  model: string
+  device?: ComputeUnit
+  promptTokens?: number
+  genTokens?: number
+  repetitions?: number
+  /** llama.cpp speculative type (e.g. ngram-cache); ignored for QAIRT. */
+  specType?: string | null
+}
+
+export interface BenchStat {
+  median: number | null
+  min: number | null
+  max: number | null
+  mean: number | null
+  stdev: number | null
+}
+
+export interface BenchResult {
+  model: string
+  runtime: Runtime
+  device: string
+  specType: string | null
+  promptTokens: number
+  genTokens: number
+  repetitions: number
+  ttftMs: BenchStat
+  prefillTps: BenchStat
+  decodeTps: BenchStat
+  benchVersion: string | null
+  llamaCppVersion: string | null
+  qairtVersion: string | null
+  summaryLine: string | null
+  wallMs: number
+  at: number
 }
 
 // ---------- Generic ----------

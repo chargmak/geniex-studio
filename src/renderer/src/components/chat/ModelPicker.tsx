@@ -106,7 +106,7 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
                     {model.npuEligible && model.runtime !== 'qairt' && <Badge variant="npu">NPU-eligible</Badge>}
                     <span className="metadata-sm text-text-disabled">{formatBytes(model.sizeBytes)}</span>
                     {crash && (
-                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`Crashed the runtime ${crash.count}× (exit ${crash.code}). Known GenieX issue #1154 on some X Elite systems.`}>
+                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`Crashed the GenieX runtime ${crash.count}× (exit ${crash.code}) under CLI ${crash.cliVersion ?? '?'}. Forgotten automatically when the CLI is updated.`}>
                         <AlertTriangle className="size-3" /> crashed {crash.count}×
                       </span>
                     )}

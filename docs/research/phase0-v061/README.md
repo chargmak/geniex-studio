@@ -1,0 +1,21 @@
+# Phase 0: GenieX v0.6.1 on this X Elite (2026-09-14)
+
+Machine: X1E80100, 16 GB (3.4–4.8 GB free during the tests), NPU driver 30.0.220.3000 (unchanged since August),
+GenieX CLI v0.6.1, bundled QAIRT 2.45, llama.cpp `0eadefe`. Files: `phase0.mjs` (HTTP checks, run with
+`node phase0.mjs <test…>` against `geniex serve`), `t1-qairt.ps1` (CLI crash test), `phase0-results.json` (raw output
+of the later runs; T2/T3/T5 numbers below come from the first run, which crashed before writing the file).
+
+| # | Question | Result |
+|---|----------|--------|
+| 1 | Do AI Hub QAIRT bundles still crash (#1154)? | **No — fixed by GenieX itself.** `qualcomm/Qwen3-0.6B:W4A16` loads in ~6.5 s and decodes at 75–84 tok/s (TTFT 44–72 ms) through both `infer` and `serve`. `DSP_INFO UNSUPPORTED_KEY 49/50` is still logged but harmless. `--qairt-lib` pointing at the sidecar's QAIRT 2.48.40 also works (same speed). Gemma-4-E4B (9.9 GB) not tried for lack of RAM. |
+| 1b | QAIRT quirks | Tool calls work on QAIRT (proper `tool_calls`). **`enable_think:false` is ignored** on QAIRT Qwen3: the thinking ends up in `content`; with `enable_think:true` + `reasoning_format:"auto"` it is split into `reasoning_content`. |
+| 2 | Streaming tool calls | Confirmed on Qwen3-4B Q4_0 (npu): two calls in one turn arrive in separate chunks (`index` 0 and 1), `finish_reason:"tool_calls"`, TTFT 1.7 s vs 4.4 s total. A `role:tool` result round-trip works (the model answered from the tool output). |
+| 3 | KV-cache reuse | `usage.prompt_tokens` reports only the *newly prefilled* tokens. Continuation turns: 162 / 244 / 65 tokens. Re-sending identical history: 9 tokens (counted as a continuation, no reset). Dropping the oldest exchange: 1468 tokens (full re-prefill). |
+| 4 | Images on earlier messages | **Used.** Gemma-4-E2B QAT Q4_0 (GGUF, npu): strict recall of digits never mentioned in text answered "first: 7, second: 3"; the same request with earlier media stripped answered "Please provide the images". Continuation still holds with media in history (37 new prompt tokens). Image encode costs 6.8–7.2 s per 512² image on **cpu, hybrid and npu alike** (12.8 s for the first image after load). |
+| 5 | npu vs hybrid (Qwen3-4B) | hybrid did not crash this time: 155 tokens in 12.6 s (load 21 s) vs npu 160 tokens in 15.0 s (reload 0.4 s). Single sample; decode was ~7–11 tok/s during the whole session (RAM pressure — August measured 14). |
+| 6 | Audio input | Pipeline works (file path and data URL, ≈100 audio tokens per clip, TTFT 2–3 s) but Gemma-4-E2B transcribed SAPI TTS wrongly ("Mhm.", "Good morning.", "four … blue" for "forty two … green"); only partial semantics ("elephant", "banana") got through. Not a Whisper replacement. |
+| 7 | Context overflow, GGUF on **npu** | **Kills the server every time** (exit 3): llama.cpp attempts a context shift and `ggml-backend.cpp:941: pre-allocated tensor (cache_k_l0) in a buffer (HTP0) that cannot run the operation (ROPE)` → `fatal: backend aborted (SIGABRT)`. Happens for a prompt longer than `nctx` *and* for a generation that reaches `nctx`. |
+| 7b | Context overflow, GGUF on **cpu** | Silent context shift (keeps 4 tokens + the newer half), HTTP 200. A 7022-token prompt took 91 s; a generation that hit `nctx` shifted and continued to `finish_reason:"stop"`. No 400 and no `finish_reason:"length"` — PR #1349's 400 applies to QAIRT only. |
+| 7c | Context overflow, **QAIRT** | Server survives. Non-streaming: 400 `{"error":{"code":"context_length_exceeded","message":"prompt is longer than the model's context window"}}` plus `usage`. Streaming: 200, then `data:{"code":-200103,"error":"SDKError(Input prompt too long)"}` and the stream ends. |
+| 8 | Runtime switching in one `serve` | **QAIRT → GGUF is broken.** Once any QAIRT model has been loaded, every llama.cpp load fails with `ggml-hex: HTP0 failed to open session : error 0x80000406` — even with `compute:"cpu"`. GGUF → QAIRT and QAIRT → QAIRT work. A fresh `serve` process fixes it. |
+| 9 | `/v1/models` | Ids carry the precision (`qualcomm/Qwen3-0.6B:W4A16`). `GET /v1/models/{name}` works with and without the precision suffix and returns `model_type`. `usage.completion_tokens_details` is present (zeros without speculative decoding). |

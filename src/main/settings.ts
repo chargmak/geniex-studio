@@ -33,6 +33,8 @@ export class SettingsStore extends EventEmitter {
     try {
       if (existsSync(this.file)) {
         const raw = JSON.parse(readFileSync(this.file, 'utf8')) as unknown
+        // Migration: `defaults.keepCache` drove the GenieX-KeepCache header, which GenieX 0.6 removed.
+        if (raw && typeof raw === 'object') delete ((raw as { defaults?: Record<string, unknown> }).defaults ?? {}).keepCache
         return mergeSettings(structuredClone(DEFAULT_SETTINGS), raw)
       }
     } catch (err) {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import type { BenchRunRequest } from '@shared/api'
 import { sampleSystem, type SystemStats } from '../../telemetry/systemStats'
 
 export const systemRoutes = new Hono()
@@ -43,7 +44,46 @@ systemRoutes.get('/telemetry', (c) => {
   return c.json({ recent: repos.telemetry.recent(Number(c.req.query('limit') ?? 200)), byModel: repos.telemetry.summaryByModel() })
 })
 
-/** Simple benchmark: fixed prompt on a model, returns metrics (runs through the same client → telemetry too). */
+// ---------------------------------------------------------------- geniex-bench (Qualcomm's standalone benchmark)
+
+systemRoutes.get('/bench', async (c) => c.json(await c.get('ctx').bench.status()))
+
+/** Downloads + extracts geniex-bench (~85 MB from Qualcomm's public S3). The UI asks the user first. */
+systemRoutes.post('/bench/install', async (c) => {
+  try {
+    return c.json(await c.get('ctx').bench.install())
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
+  }
+})
+
+/** Runs one cell (1 warm-up + N measured repetitions) and returns llama-bench-style medians. Takes 10 s – minutes. */
+systemRoutes.post('/bench/run', async (c) => {
+  const { bench, repos } = c.get('ctx')
+  const body = (await c.req.json().catch(() => ({}))) as Partial<BenchRunRequest>
+  if (!body.model) return c.json({ error: 'model required' }, 400)
+  try {
+    const result = await bench.run({
+      model: body.model,
+      device: body.device,
+      promptTokens: Math.min(8192, Math.max(16, Number(body.promptTokens) || 512)),
+      genTokens: Math.min(2048, Math.max(8, Number(body.genTokens) || 128)),
+      repetitions: Math.min(20, Math.max(1, Number(body.repetitions) || 5)),
+      specType: body.specType ?? null,
+    })
+    // Keep the numbers in the same telemetry table the System page charts (per-request samples).
+    try {
+      repos.telemetry.insert({ model: result.model, compute: result.device, ttftMs: result.ttftMs.median, totalMs: null, promptTokens: result.promptTokens, completionTokens: result.genTokens, tokensPerSecond: result.decodeTps.median, loadMs: null, finishReason: 'bench', conversationId: null })
+    } catch {
+      /* telemetry is best-effort */
+    }
+    return c.json(result)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+  }
+})
+
+/** Simple in-server benchmark: fixed prompt on a model, returns metrics (runs through the same client → telemetry too). */
 systemRoutes.post('/benchmark', async (c) => {
   const { client } = c.get('ctx')
   const body = (await c.req.json().catch(() => ({}))) as { model?: string; compute?: 'npu' | 'gpu' | 'cpu' | 'hybrid'; tokens?: number }

@@ -8,7 +8,10 @@ import type {
   GenieRequestOptions,
   SamplerSettings,
 } from '@shared/api'
+import type { Runtime } from '@shared/config'
+import { runtimeOfModel } from '@shared/modelSelect'
 import type { SettingsStore } from '../settings'
+import { isContextOverflowCode } from '../chat/context'
 import { parseSse, readAllText, sniffBody } from '../util/sse'
 import type { GenieXSupervisor } from './supervisor'
 
@@ -108,14 +111,20 @@ function sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
   })
 }
 
-/** Human explanation for the known QAIRT/NPU-driver crash (GenieX issue #1154). */
-export function explainRuntimeCrash(model: string | null, code: string): string {
-  const isAiHub = !!model && /^(qualcomm|ai-hub-models)[/]/i.test(model)
+/** Human explanation for a runtime crash, by what the supervisor saw in the log before the exit. */
+export function explainRuntimeCrash(model: string | null, code: string, kind: 'model' | 'context_overflow' | 'unknown' = 'model'): string {
+  if (kind === 'context_overflow') {
+    return (
+      `The context window overflowed while ${model ?? 'the model'} was running on the NPU, and GenieX's llama.cpp backend aborted ` +
+      `instead of trimming (a GenieX bug: context shifts cannot run on the Hexagon backend). The server has been restarted and nothing ` +
+      `was recorded against the model. Studio will pad its token estimate for this conversation; you can also raise the context window ` +
+      `(Settings > GenieX server) or lower "Max tokens".`
+    )
+  }
   const head = `GenieX runtime crashed while loading ${model ?? 'the model'} (exit ${code}).`
+  const isAiHub = !!model && /^(qualcomm|ai-hub-models)[/]/i.test(model)
   if (isAiHub) {
-    return `${head} AI Hub QAIRT bundles are failing to initialise on this device's NPU driver (known GenieX issue #1154). ` +
-      `The server has been restarted. Try a GGUF Q4_0 model with compute "npu" or "hybrid" (e.g. unsloth/Qwen3-4B-GGUF:Q4_0), ` +
-      `and check Windows Update for a newer Qualcomm NPU / Compute DSP driver.`
+    return `${head} The server has been restarted. If this AI Hub bundle keeps crashing, check for a GenieX CLI update (geniex update) and a newer Qualcomm NPU driver, or use a GGUF Q4_0 model.`
   }
   return `${head} The server has been restarted; try again, a smaller quantisation, or compute "cpu".`
 }
@@ -185,7 +194,7 @@ export class GenieXClient {
       ...(body.tools?.length ? { tools: body.tools } : {}),
       stream,
       ...(stream ? { stream_options: { include_usage: true } } : {}),
-      // GenieX v0.4.0 reads max_completion_tokens; docs show max_tokens — send both.
+      // Both spellings are read (max_tokens was re-honoured in v0.6.0); sending both is harmless.
       max_tokens: maxTokens,
       max_completion_tokens: maxTokens,
       ...defined({
@@ -211,10 +220,36 @@ export class GenieXClient {
     }
   }
 
-  private headers(keepCache: boolean | undefined): Record<string, string> {
-    const h: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' }
-    if (keepCache ?? this.settings.get().defaults.keepCache) h['GenieX-KeepCache'] = 'true'
-    return h
+  /** GenieX >= 0.6 detects conversation continuation from the messages themselves; no cache header exists any more. */
+  private headers(): Record<string, string> {
+    return { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' }
+  }
+
+  /**
+   * llama.cpp cannot open its Hexagon session once a QAIRT bundle has been loaded in the same `geniex serve`
+   * process (v0.6.1). Studio owns the process, so switching QAIRT -> GGUF means restarting it first.
+   * Returns true when a restart happened.
+   */
+  private async prepareRuntime(model: string, runtime: Runtime | null | undefined, onRestart?: (reason: string) => void): Promise<boolean> {
+    const rt = runtime ?? runtimeOfModel(model)
+    let restarted = false
+    if (rt === 'llama_cpp' && this.sup.qairtLoadedSinceStart && this.sup.managedRunning) {
+      const reason = 'Restarting GenieX: a QAIRT model was loaded in this server process and GGUF models cannot follow it without a restart.'
+      this.sup.log('studio', reason)
+      onRestart?.(reason)
+      try {
+        await this.sup.restart()
+      } catch (err) {
+        // The old process can take a moment to release the port; one more try before giving up.
+        this.sup.log('studio', `restart failed once (${err instanceof Error ? err.message : String(err)}); retrying`)
+        await new Promise((r) => setTimeout(r, 1500))
+        await this.sup.start()
+      }
+      this.residentKey = null
+      restarted = true
+    }
+    this.sup.noteRuntime(rt)
+    return restarted
   }
 
   private async readError(res: Response): Promise<GenieXHttpError> {
@@ -234,6 +269,10 @@ export class GenieXClient {
     } catch {
       /* plain text */
     }
+    if (isContextOverflowCode(code)) {
+      code = 'context_length_exceeded'
+      message = "The prompt is longer than the model's context window."
+    }
     return new GenieXHttpError(message, res.status, code, parsed)
   }
 
@@ -243,8 +282,9 @@ export class GenieXClient {
    * Loads a model by sending an empty chat (undocumented but what `geniex run` does). Runs the same
    * nctx/ngl/compute/spec_* as the real request so the server's cache key matches and no second reload happens.
    */
-  async warmUp(model: string, options?: GenieRequestOptions, signal?: AbortSignal): Promise<number> {
+  async warmUp(model: string, options?: GenieRequestOptions, signal?: AbortSignal, runtime?: Runtime | null): Promise<number> {
     await this.ensureRunning()
+    await this.prepareRuntime(model, runtime)
     // Restore rather than clear on the way out: chatStream sets activeModel before calling us and still needs it
     // for crash attribution during the generation that follows. A standalone warm-up must not leave it dangling,
     // or an unrelated later exit would be blamed on this model.
@@ -256,7 +296,7 @@ export class GenieXClient {
     body.max_completion_tokens = 1
     const res = await fetch(`${this.base}/v1/chat/completions`, {
       method: 'POST',
-      headers: this.headers(false),
+      headers: this.headers(),
       body: JSON.stringify(body),
       signal,
     })
@@ -294,11 +334,12 @@ export class GenieXClient {
     if (recent || !this.sup.isRunning) {
       this.residentKey = null
       const code = recent ? crash!.code : 'connection lost'
-      if (!recent) {
+      const kind = recent ? crash!.kind : this.sup.overflowSeenRecently ? 'context_overflow' : 'model'
+      if (!recent && kind === 'model') {
         // Attribute the loss to this model even if the exit event hasn't fired yet.
-        this.sup.crashedModels.set(model, this.sup.crashLog.record(model, code))
+        this.sup.crashedModels.set(model, this.sup.crashLog.record(model, code, this.sup.cliVersion))
       }
-      return new GenieXHttpError(explainRuntimeCrash(model, code), 502, 'runtime_crash')
+      return new GenieXHttpError(explainRuntimeCrash(model, code, kind), 502, kind === 'context_overflow' ? 'context_overflow' : 'runtime_crash')
     }
     return err
   }
@@ -326,15 +367,16 @@ export class GenieXClient {
       .run(
         async () => {
           await this.ensureRunning()
-          this.sup.activeModel = body.model
           push({ type: 'start', model: body.model, requestId, at: Date.now() })
+          await this.prepareRuntime(body.model, body.runtime, (reason) => push({ type: 'runtime-restart', reason }))
+          this.sup.activeModel = body.model
 
           // Explicit load when the resident model/options differ so the UI can show a proper "loading" state.
           const key = optionsKey(body.model, body.options, this.serveDefaults())
           let loadMs: number | null = null
           if (this.residentKey !== key) {
             push({ type: 'model-loading', model: body.model })
-            loadMs = await this.warmUp(body.model, body.options, signal)
+            loadMs = await this.warmUp(body.model, body.options, signal, body.runtime)
             push({ type: 'model-ready', model: body.model, loadMs })
           }
 
@@ -349,7 +391,7 @@ export class GenieXClient {
 
           const res = await fetch(`${this.base}/v1/chat/completions`, {
             method: 'POST',
-            headers: this.headers(body.options?.keepCache),
+            headers: this.headers(),
             body: JSON.stringify(this.buildBody(body, true)),
             signal,
           })
@@ -391,8 +433,13 @@ export class GenieXClient {
               }
               if (chunk.error !== undefined) {
                 const e = chunk.error
-                const message = typeof e === 'string' ? e : ((e as { message?: string })?.message ?? JSON.stringify(e))
-                const code = (e as { code?: string | number })?.code ?? chunk.code
+                let message = typeof e === 'string' ? e : ((e as { message?: string })?.message ?? JSON.stringify(e))
+                let code = (e as { code?: string | number })?.code ?? chunk.code
+                // A streamed overflow arrives as an SDK code (-200103 "Input prompt too long"), not as the 400 body.
+                if (isContextOverflowCode(code)) {
+                  code = 'context_length_exceeded'
+                  message = "The prompt is longer than the model's context window."
+                }
                 throw new GenieXHttpError(message, 200, code, chunk)
               }
               const now = Date.now()
@@ -522,9 +569,10 @@ export class GenieXClient {
         const d = this.settings.get()
         const s: SamplerSettings = { ...d.defaults.sampler, ...(body.sampler ?? {}) }
         const o = body.options ?? {}
+        await this.prepareRuntime(body.model, null)
         const res = await fetch(`${this.base}/v1/completions`, {
           method: 'POST',
-          headers: this.headers(false),
+          headers: this.headers(),
           body: JSON.stringify({
             model: body.model,
             prompt: body.prompt,

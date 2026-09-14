@@ -9,12 +9,26 @@ export interface CliResult {
   durationMs: number
 }
 
+/** Process-wide GenieX environment chosen in Settings; applies to every `geniex` we spawn (serve, pull, list…). */
+let geniexEnv: { dataDir: string | null; qairtLib: string | null } = { dataDir: null, qairtLib: null }
+
+export function configureGeniexEnv(next: Partial<typeof geniexEnv>): void {
+  geniexEnv = { ...geniexEnv, ...next }
+}
+
+export function currentGeniexEnv(): typeof geniexEnv {
+  return geniexEnv
+}
+
 const BASE_ENV = (): NodeJS.ProcessEnv => ({
   ...process.env,
   NO_COLOR: '1',
   TERM: 'dumb',
   // Never let the CLI block on its update check when driven programmatically.
   GENIEX_SKIP_UPDATE: '1',
+  // Model cache location and QAIRT runtime override, same knobs the CLI reads from its own env.
+  ...(geniexEnv.dataDir ? { GENIEX_DATADIR: geniexEnv.dataDir } : {}),
+  ...(geniexEnv.qairtLib ? { GENIEX_QAIRT_LIB: geniexEnv.qairtLib } : {}),
 })
 
 /** Run a short-lived geniex command (list/version/config/model list/remove/set-type). Always appends --skip-update. */
@@ -59,10 +73,10 @@ export interface GenieXVersion {
   raw: string
 }
 
-/** Parses `geniex version`:
- *   GenieX CLI Version:     v0.4.0
- *   QAIRT Runtime Version:  v2.45.0.260326
- *   LlamaCPP Runtime Hash:  6ba5ef2
+/** Parses `geniex version` (v0.6.1 prints `QAIRT Runtime Version:  2.45`, v0.4 printed `v2.45.0.260326`):
+ *   GenieX CLI Version:     v0.6.1
+ *   QAIRT Runtime Version:  2.45
+ *   LlamaCPP Runtime Hash:  0eadefe
  */
 export function parseVersion(text: string): GenieXVersion {
   const grab = (re: RegExp): string | null => {
@@ -94,6 +108,7 @@ export function classifyHub(name: string): ModelHub | 'unknown' {
   if (lower.startsWith('qualcomm/') || lower.startsWith('ai-hub-models/')) return 'aihub'
   if (lower.startsWith('docker.io/') || lower.startsWith('ai/')) return 'docker'
   if (lower.startsWith('local/')) return 'localfs'
+  // ModelScope repos share the owner/name shape with Hugging Face; the cache does not record the source hub.
   if (lower.includes('/')) return 'hf'
   return 'unknown'
 }
@@ -118,9 +133,8 @@ function str(v: unknown): string | null {
 }
 
 /**
- * Parses `geniex list --format json`. The schema is documented as stable but the exact key casing was not
- * observable before any model was cached, so this accepts the plausible variants
- * (name|model_name|Name, size|total_size|Size, runtime|Runtime, type|model_type|Type, precisions|Precisions).
+ * Parses `geniex list --format json`. The documented stable schema is {name, size, runtime, type, precisions};
+ * the plausible variants (model_name|Name, total_size|Size, Runtime, model_type|Type, Precisions) are accepted too.
  */
 export function parseListJson(text: string): CachedModel[] {
   const trimmed = text.trim()

@@ -33,6 +33,17 @@ describe('CrashLog', () => {
     expect(new CrashLog(dir).get('m')).toMatchObject({ count: 2, code: 'y' })
   })
 
+  it('stamps records with the CLI version and prune() forgets records from another (or unknown) version', () => {
+    const log = new CrashLog(dir)
+    log.record('old/model', 'x') // unstamped, as Studio ≤ 0.2 wrote it
+    log.record('qualcomm/Qwen3-0.6B', '0xC0000005', 'v0.4.0')
+    log.record('unsloth/Qwen3-4B-GGUF:Q4_0', '3', 'v0.6.1')
+    expect(log.get('qualcomm/Qwen3-0.6B')?.cliVersion).toBe('v0.4.0')
+    expect(log.prune('v0.6.1').sort()).toEqual(['old/model', 'qualcomm/Qwen3-0.6B'])
+    expect(Object.keys(new CrashLog(dir).all())).toEqual(['unsloth/Qwen3-4B-GGUF:Q4_0'])
+    expect(log.prune(null)).toEqual([]) // unknown current version: nothing is touched
+  })
+
   it('constructing an instance never rewrites existing history', () => {
     const file = join(dir, 'runtime-crashes.json')
     const seeded = { 'qualcomm/Qwen3-0.6B': { count: 1, lastAt: 1700000000000, code: '0xC0000005' } }

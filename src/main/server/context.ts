@@ -6,11 +6,13 @@ import type { PullManager } from '../geniex/pulls'
 import type { Database } from '../db'
 import type { AttachmentRepo, ConversationRepo, MessageRepo, TelemetryRepo } from '../db/repos'
 import type { TurnRunner } from '../chat/turns'
+import type { ContextTracker } from '../chat/context'
 import type { AgentRunner } from '../agent/loop'
 import type { ApprovalCenter } from '../agent/approvals'
 import type { McpManager } from '../mcp/manager'
 import type { SidecarSupervisor } from '../sidecar/supervisor'
 import type { KnowledgeService } from '../knowledge/service'
+import type { GenieXBench } from '../bench/geniexBench'
 
 /**
  * Everything long-lived that HTTP routes need. Constructed once at boot (Electron main or the headless runner)
@@ -33,11 +35,15 @@ export interface AppContext {
   pulls: PullManager
   db: Database
   turns: TurnRunner
+  /** Per-conversation token-estimate calibration (keeps GGUF-on-NPU requests inside the context window). */
+  contextTracker: ContextTracker
   agent: AgentRunner
   approvals: ApprovalCenter
   mcp: McpManager
   sidecar: SidecarSupervisor
   knowledge: KnowledgeService
+  /** Qualcomm's geniex-bench, installed on demand under dataDir/bench. */
+  bench: GenieXBench
   repos: {
     conversations: ConversationRepo
     messages: MessageRepo

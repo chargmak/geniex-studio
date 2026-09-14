@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CachedModel } from '@shared/api'
-import { crashRecordFor, pickAutoModel } from './select'
+import { bareModelName, crashRecordFor, findInstalled, pickAutoModel, runtimeOfModel } from './select'
 
 const model = (name: string, runtime: string, requestIds: string[], extra: Partial<CachedModel> = {}): CachedModel => ({
   name,
@@ -37,10 +37,15 @@ describe('pickAutoModel', () => {
     expect(picked).toBe('unsloth/Qwen3-4B-GGUF:Q4_0')
   })
 
-  it('avoids every QAIRT bundle once one of them has crashed (runtime-wide failure, issue #1154)', () => {
+  it('treats a crash as a per-model fact: an untried QAIRT bundle stays eligible when a sibling crashed', () => {
+    // GenieX 0.6 runs AI Hub bundles fine on X Elite; a single crashed bundle must not condemn the whole catalogue.
     const withUntried = [...INSTALLED, model('qualcomm/Qwen3-4B', 'qairt', ['qualcomm/Qwen3-4B'], { sizeBytes: 4_000_000_000 })]
     const picked = pickAutoModel(withUntried, { crashed: { 'qualcomm/Qwen3-0.6B': crash() } })
-    expect(picked).toBe('unsloth/Qwen3-4B-GGUF:Q4_0')
+    expect(picked).toBe('qualcomm/Qwen3-4B')
+  })
+
+  it('accepts a saved preference in the precision-qualified form /v1/models reports', () => {
+    expect(pickAutoModel(INSTALLED, { preferred: 'qualcomm/Qwen3-0.6B:W4A16' })).toBe('qualcomm/Qwen3-0.6B')
   })
 
   it('matches crash records stored against the bare model name as well as a request id', () => {
@@ -81,6 +86,23 @@ describe('pickAutoModel', () => {
  * the id the request actually used — a bare name for QAIRT bundles, but `name:precision` for GGUF — so looking
  * up only `model.name` silently hides every GGUF crash.
  */
+describe('findInstalled / runtimeOfModel', () => {
+  it('resolves bare names, Studio request ids and server-reported precision ids to the same model', () => {
+    expect(findInstalled(INSTALLED, 'qualcomm/Qwen3-0.6B')?.name).toBe('qualcomm/Qwen3-0.6B')
+    expect(findInstalled(INSTALLED, 'qualcomm/Qwen3-0.6B:W4A16')?.name).toBe('qualcomm/Qwen3-0.6B')
+    expect(findInstalled(INSTALLED, 'unsloth/Qwen3-4B-GGUF:Q4_0')?.name).toBe('unsloth/Qwen3-4B-GGUF')
+    expect(findInstalled(INSTALLED, 'unsloth/Qwen3-4B-GGUF')?.name).toBe('unsloth/Qwen3-4B-GGUF')
+    expect(findInstalled(INSTALLED, 'nope/none')).toBeUndefined()
+    expect(bareModelName('a/b:Q4_0')).toBe('a/b')
+  })
+  it('falls back to the AI Hub naming convention for models not in the list', () => {
+    expect(runtimeOfModel('qualcomm/Qwen3-0.6B:W4A16', INSTALLED)).toBe('qairt')
+    expect(runtimeOfModel('unsloth/Qwen3-4B-GGUF:Q4_0', INSTALLED)).toBe('llama_cpp')
+    expect(runtimeOfModel('qualcomm/Something-New')).toBe('qairt')
+    expect(runtimeOfModel('someone/Model-GGUF:Q4_0')).toBe('llama_cpp')
+  })
+})
+
 describe('crashRecordFor', () => {
   it('finds a crash recorded against a GGUF request id when given that id', () => {
     const crashed = { 'unsloth/Qwen3-4B-GGUF:Q4_0': crash(2) }

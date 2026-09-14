@@ -14,9 +14,11 @@ type Tab = 'installed' | 'catalogue' | 'add'
 
 const RECOMMENDED: { name: string; precision: string; type: 'llm' | 'vlm'; hub: 'hf'; why: string }[] = [
   { name: 'unsloth/Qwen3-4B-GGUF', precision: 'Q4_0', type: 'llm', hub: 'hf', why: 'Best all-round chat + agent model that fits the NPU (Q4_0). ~2.4 GB.' },
+  { name: 'google/gemma-4-E2B-it-qat-q4_0-gguf', precision: 'Q4_0', type: 'vlm', hub: 'hf', why: 'Vision + audio input, tool calls, fast decode. ~4 GB; images take ~7 s each to encode.' },
+  { name: 'google/gemma-4-E4B-it-qat-q4_0-gguf', precision: 'Q4_0', type: 'vlm', hub: 'hf', why: 'Larger Gemma 4 with vision; stronger answers, needs more RAM.' },
+  { name: 'unsloth/Qwen3.5-2B-GGUF', precision: 'Q4_0', type: 'vlm', hub: 'hf', why: 'Small Qwen 3.5 vision model with the newer tool-call format.' },
   { name: 'unsloth/Qwen3-1.7B-GGUF', precision: 'Q4_0', type: 'llm', hub: 'hf', why: 'Fast and light (~1.1 GB); good for quick answers and low RAM.' },
-  { name: 'unsloth/Qwen3-8B-GGUF', precision: 'Q4_0', type: 'llm', hub: 'hf', why: 'Stronger reasoning; ~4.7 GB, slower (needs 16 GB RAM).' },
-  { name: 'unsloth/Qwen2.5-Coder-7B-Instruct-GGUF', precision: 'Q4_0', type: 'llm', hub: 'hf', why: 'Coding-focused; pairs well with Agent mode.' },
+  { name: 'unsloth/Qwen2.5-Coder-7B-Instruct-GGUF', precision: 'Q4_0', type: 'llm', hub: 'hf', why: 'Coding-focused; pairs well with Agent mode. ~4.7 GB.' },
 ]
 
 export function ModelsPage(): React.JSX.Element {
@@ -78,15 +80,15 @@ function InstalledTab({ onAdd }: { onAdd: () => void }): React.JSX.Element {
     setSettings(next)
   }
   const crashed = genie?.crashedModels ?? {}
-  const anyQairtCrash = Object.keys(crashed).some((n) => /^qualcomm\//i.test(n))
+  const crashedCount = Object.keys(crashed).length
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
-      {anyQairtCrash && (
+      {crashedCount > 0 && (
         <div className="flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning hairline-subtle">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            AI Hub QAIRT bundles crashed the GenieX runtime on this device (known GenieX issue #1154 with some NPU drivers). GGUF models with the <strong>Q4_0</strong> quantisation still run on the Hexagon NPU through llama.cpp — use those, and check Windows Update for a newer Qualcomm NPU driver.
+            {crashedCount} model{crashedCount === 1 ? '' : 's'} crashed the GenieX runtime on this device under CLI {genie?.cliVersion ?? '?'}. New chats will not auto-select them; you can still pick them by hand. The history is forgotten when the CLI is updated (System page to clear it sooner).
           </span>
         </div>
       )}
@@ -204,7 +206,6 @@ function CatalogueTab(): React.JSX.Element {
   }, [catalogue.length, load])
   const rows = useMemo(() => catalogue.filter((m) => !q || m.name.toLowerCase().includes(q.toLowerCase())), [catalogue, q])
   const pulling = (name: string): PullJob | undefined => pulls.find((p) => p.name === name && (p.state === 'running' || p.state === 'queued'))
-  const anyQairtCrash = Object.keys(genie?.crashedModels ?? {}).some((n) => /^qualcomm\//i.test(n))
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 p-4">
@@ -218,8 +219,7 @@ function CatalogueTab(): React.JSX.Element {
         </Button>
       </div>
       <p className="text-xs text-text-secondary">
-        Pre-compiled QAIRT bundles for <strong>{genie?.chipset ?? 'this device'}</strong>: run entirely on the Hexagon NPU, fixed ~4k context, no compute options.
-        {anyQairtCrash && <span className="text-warning"> These bundles are currently crashing on this machine (GenieX #1154) — prefer GGUF Q4_0 models from the Add tab.</span>}
+        Pre-compiled QAIRT bundles for <strong>{genie?.chipset ?? 'this device'}</strong>: run entirely on the Hexagon NPU (fastest decode), fixed ~4k context, no compute options. Switching from one of these to a GGUF model restarts the server (a GenieX limitation).
       </p>
       {loading && !catalogue.length && <div className="p-6 text-center text-sm text-text-secondary">Loading catalogue from geniex…</div>}
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -258,7 +258,7 @@ function CatalogueTab(): React.JSX.Element {
 function AddTab(): React.JSX.Element {
   const startPull = useModelsStore((s) => s.startPull)
   const installed = useModelsStore((s) => s.installed)
-  const [hub, setHub] = useState<'hf' | 'docker' | 'localfs'>('hf')
+  const [hub, setHub] = useState<'hf' | 'modelscope' | 'docker' | 'localfs'>('hf')
   const [repo, setRepo] = useState('')
   const [quants, setQuants] = useState<{ precision: string; sizeBytes: number | null; npuEligible: boolean }[] | null>(null)
   const [suggestedType, setSuggestedType] = useState<'llm' | 'vlm'>('llm')
@@ -297,6 +297,7 @@ function AddTab(): React.JSX.Element {
     setError(null)
     try {
       if (hub === 'hf') await startPull({ name: repo.trim(), precision: precision || undefined, hub: 'hf', modelType })
+      else if (hub === 'modelscope') await startPull({ name: repo.trim(), precision: precision.trim() || undefined, hub: 'modelscope', modelType })
       else if (hub === 'docker') await startPull({ name: repo.trim(), precision: tag || 'latest', hub: 'docker', modelType })
       else await startPull({ name: repo.trim() || 'local/model', hub: 'localfs', localPath: localPath.trim(), modelType })
     } catch (err) {
@@ -308,7 +309,7 @@ function AddTab(): React.JSX.Element {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
       <section>
         <h2 className="heading-xs text-text-primary">Recommended for Snapdragon X Elite</h2>
-        <p className="mt-1 body-sm text-text-secondary">GGUF Q4_0 quantisations run on the Hexagon NPU via llama.cpp (compute “npu” or “hybrid”). One click to pull.</p>
+        <p className="mt-1 body-sm text-text-secondary">GGUF Q4_0 quantisations run on the Hexagon NPU via llama.cpp (compute “npu” or “hybrid”). One click to pull. For the fastest decode, pull a QAIRT bundle from the Qualcomm AI Hub tab instead.</p>
         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
           {RECOMMENDED.map((r) => {
             const have = installed.some((m) => m.name === r.name)
@@ -340,9 +341,9 @@ function AddTab(): React.JSX.Element {
 
       <section className="rounded-md bg-surface-2 p-4 hairline-subtle">
         <div className="mb-3 flex items-center gap-1">
-          {(['hf', 'docker', 'localfs'] as const).map((h) => (
+          {(['hf', 'modelscope', 'docker', 'localfs'] as const).map((h) => (
             <button key={h} type="button" onClick={() => setHub(h)} className={cn('h-8 rounded-sm px-3 text-[13px] font-medium', hub === h ? 'bg-accent-soft text-accent-brand' : 'text-text-secondary hover:bg-surface-3')}>
-              {h === 'hf' ? 'Hugging Face' : h === 'docker' ? 'Docker Hub' : 'Local files'}
+              {h === 'hf' ? 'Hugging Face' : h === 'modelscope' ? 'ModelScope' : h === 'docker' ? 'Docker Hub' : 'Local files'}
             </button>
           ))}
         </div>
@@ -382,6 +383,24 @@ function AddTab(): React.JSX.Element {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {hub === 'modelscope' && (
+          <div className="flex flex-col gap-3">
+            <p className="text-xs text-text-secondary">GGUF repositories on modelscope.cn (mirrors of many Hugging Face repos, useful where huggingface.co is slow or blocked). GenieX picks the quantisation; give one to be explicit.</p>
+            <div className="flex gap-2">
+              <input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/repo — e.g. Qwen/Qwen3-4B-GGUF" className="h-9 flex-1 rounded-sm bg-surface-1 px-3 font-mono text-sm hairline outline-none focus:border-[var(--accent)]" />
+              <input value={precision} onChange={(e) => setPrecision(e.target.value)} placeholder="Q4_0" className="h-9 w-32 rounded-sm bg-surface-1 px-3 font-mono text-sm hairline outline-none focus:border-[var(--accent)]" />
+            </div>
+            <div className="flex items-center gap-3">
+              <select value={modelType} onChange={(e) => setModelType(e.target.value as 'llm' | 'vlm')} className="h-8 rounded-sm bg-surface-1 px-2 text-sm hairline outline-none">
+                <option value="llm">Text (llm)</option>
+                <option value="vlm">Vision (vlm)</option>
+              </select>
+              <Button variant="primary" onClick={() => void pull()} disabled={!/^[\w.-]+\/[\w.-]+$/.test(repo.trim())}>
+                <Download /> Pull
+              </Button>
+            </div>
           </div>
         )}
         {hub === 'docker' && (

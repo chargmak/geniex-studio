@@ -1,3 +1,5 @@
+import type { ComputeUnit } from '@shared/config'
+import type { BenchResult, BenchStat, BenchStatus } from '@shared/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, Cpu, Gauge, HardDrive, Play, RefreshCw, Square, Terminal, Zap } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -71,8 +73,8 @@ function StatTile({ icon: Icon, label, value, unit, sub, series, tone }: { icon:
 
 
 /**
- * Forgetting the crash history re-arms models that took the runtime down, so it asks twice.
- * Only worth doing after an NPU / Compute-DSP driver update (or a GenieX release that fixes #1154).
+ * Forgetting the crash history re-arms models that took the runtime down, so it asks twice. A GenieX CLI update
+ * already forgets it automatically (records are scoped to the CLI version); this is for driver updates.
  */
 function ClearCrashesButton({ onCleared }: { onCleared: () => void }): React.JSX.Element {
   const [armed, setArmed] = useState(false)
@@ -100,6 +102,11 @@ function ClearCrashesButton({ onCleared }: { onCleared: () => void }): React.JSX
   )
 }
 
+function Stdev({ s, unit = '' }: { s: BenchStat; unit?: string }): React.JSX.Element | null {
+  if (s.stdev == null || s.median == null) return null
+  return <span className="ml-1 text-text-disabled">± {formatNumber(s.stdev, s.median < 10 ? 2 : s.median < 100 ? 1 : 0)}{unit}</span>
+}
+
 export function SystemPage(): React.JSX.Element {
   const genie = useServerStore((s) => s.genie)
   const studio = useServerStore((s) => s.studio)
@@ -114,7 +121,37 @@ export function SystemPage(): React.JSX.Element {
   const [tele, setTele] = useState<{ recent: TelemetryRow[]; byModel: ByModel[] } | null>(null)
   const [logs, setLogs] = useState<{ ts: number; stream: string; line: string }[]>([])
   const [busy, setBusy] = useState<string | null>(null)
-  const [bench, setBench] = useState<{ model: string; compute: string; running: boolean; result: Record<string, unknown> | null }>({ model: '', compute: 'hybrid', running: false, result: null })
+  const [bench, setBench] = useState<{ model: string; compute: string; running: boolean; result: Record<string, unknown> | null }>({ model: '', compute: 'npu', running: false, result: null })
+  const [gb, setGb] = useState<{ status: BenchStatus | null; model: string; device: ComputeUnit; promptTokens: number; genTokens: number; repetitions: number; specType: string; running: boolean; installing: boolean; error: string | null; results: BenchResult[] }>({ status: null, model: '', device: 'npu', promptTokens: 512, genTokens: 128, repetitions: 5, specType: '', running: false, installing: false, error: null, results: [] })
+  const refreshBench = useCallback(() => api<BenchStatus>('/api/system/bench').then((status) => setGb((g) => ({ ...g, status }))).catch(() => {}), [])
+  useEffect(() => {
+    void refreshBench()
+  }, [refreshBench])
+  const installBench = async (): Promise<void> => {
+    setGb((g) => ({ ...g, installing: true, error: null }))
+    try {
+      const status = await api<BenchStatus>('/api/system/bench/install', { method: 'POST', timeoutMs: 15 * 60_000 })
+      setGb((g) => ({ ...g, status }))
+    } catch (err) {
+      setGb((g) => ({ ...g, error: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setGb((g) => ({ ...g, installing: false }))
+    }
+  }
+  const runGb = async (): Promise<void> => {
+    const model = gb.model || installed[0]?.requestIds[0]
+    if (!model) return
+    setGb((g) => ({ ...g, running: true, error: null }))
+    try {
+      const r = await api<BenchResult>('/api/system/bench/run', { method: 'POST', timeoutMs: 25 * 60_000, json: { model, device: gb.device, promptTokens: gb.promptTokens, genTokens: gb.genTokens, repetitions: gb.repetitions, specType: gb.specType || null } })
+      setGb((g) => ({ ...g, results: [r, ...g.results].slice(0, 12) }))
+      void api<{ recent: TelemetryRow[]; byModel: ByModel[] }>('/api/system/telemetry').then(setTele).catch(() => {})
+    } catch (err) {
+      setGb((g) => ({ ...g, error: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setGb((g) => ({ ...g, running: false }))
+    }
+  }
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -240,12 +277,12 @@ export function SystemPage(): React.JSX.Element {
             <ul className="mt-1 list-disc pl-5">
               {Object.entries(genie.crashedModels).map(([name, c]) => (
                 <li key={name}>
-                  <span className="font-mono">{name}</span> — {c.count}× (exit {c.code}). {/^qualcomm\//i.test(name) ? 'QAIRT/NPU-driver issue (GenieX #1154): use GGUF Q4_0 with compute npu/hybrid instead.' : ''}
+                  <span className="font-mono">{name}</span> — {c.count}× (exit {c.code}) under GenieX {c.cliVersion ?? '?'}.
                 </li>
               ))}
             </ul>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-text-secondary">Remembered across restarts — new chats never auto-select these. You can still pick one by hand.</span>
+              <span className="text-text-secondary">Remembered across restarts — new chats never auto-select these. You can still pick one by hand. Forgotten automatically when the GenieX CLI is updated.</span>
               <ClearCrashesButton onCleared={refresh} />
             </div>
           </div>
@@ -285,12 +322,98 @@ export function SystemPage(): React.JSX.Element {
           </table>
         </div>
 
-        {/* Benchmark */}
+        {/* geniex-bench */}
         <div className="rounded-md bg-surface-2 p-4 hairline-subtle">
           <div className="mb-2 flex items-center gap-2 metadata-md text-text-secondary">
-            <Gauge className="size-3.5" /> Benchmark
+            <Gauge className="size-3.5" /> geniex-bench
+            {gb.status?.version && <span className="ml-auto text-text-disabled">{gb.status.version}</span>}
           </div>
-          <p className="mb-3 text-xs text-text-secondary">Runs a fixed 256-token prompt and reports load time, TTFT and decode speed. Compare compute units for GGUF models.</p>
+          {!gb.status?.installed ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-text-secondary">Qualcomm's standalone benchmark: a fixed random-token prefill and N measured generations, reported as median ± stdev for TTFT, prefill and decode speed — comparable to published numbers. Uses the models already in the GenieX cache.</p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="primary" disabled={gb.installing} onClick={() => void installBench()}>
+                  {gb.installing ? 'Downloading…' : 'Download geniex-bench (~85 MB)'}
+                </Button>
+                <span className="text-xs text-text-disabled">from qaihub-public-assets.s3.us-west-2.amazonaws.com</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <select value={gb.model || installed[0]?.requestIds[0] || ''} onChange={(e) => setGb((g) => ({ ...g, model: e.target.value }))} className="h-8 max-w-64 rounded-sm bg-surface-1 px-2 text-sm hairline outline-none">
+                  {installed.flatMap((m) => m.requestIds).map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+                <select value={gb.device} onChange={(e) => setGb((g) => ({ ...g, device: e.target.value as ComputeUnit }))} className="h-8 rounded-sm bg-surface-1 px-2 text-sm hairline outline-none" title="Compute unit (GGUF only; QAIRT bundles always run on the NPU)">
+                  {['npu', 'hybrid', 'gpu', 'cpu'].map((c) => (
+                    <option key={c} value={c}>
+                      {c.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+                <select value={gb.specType} onChange={(e) => setGb((g) => ({ ...g, specType: e.target.value }))} className="h-8 rounded-sm bg-surface-1 px-2 text-sm hairline outline-none" title="Speculative decoding (GGUF only)">
+                  <option value="">no speculation</option>
+                  <option value="ngram-cache">ngram-cache</option>
+                  <option value="ngram-simple">ngram-simple</option>
+                  <option value="ngram-map-k4v">ngram-map-k4v</option>
+                </select>
+                <label className="flex items-center gap-1 text-xs text-text-secondary">
+                  pp <input type="number" min={16} max={8192} step={64} value={gb.promptTokens} onChange={(e) => setGb((g) => ({ ...g, promptTokens: Number(e.target.value) || 512 }))} className="h-8 w-20 rounded-sm bg-surface-1 px-2 text-sm tabular-nums hairline outline-none" title="Prefill tokens" />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-text-secondary">
+                  tg <input type="number" min={8} max={2048} step={32} value={gb.genTokens} onChange={(e) => setGb((g) => ({ ...g, genTokens: Number(e.target.value) || 128 }))} className="h-8 w-20 rounded-sm bg-surface-1 px-2 text-sm tabular-nums hairline outline-none" title="Generated tokens" />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-text-secondary">
+                  × <input type="number" min={1} max={20} value={gb.repetitions} onChange={(e) => setGb((g) => ({ ...g, repetitions: Number(e.target.value) || 5 }))} className="h-8 w-14 rounded-sm bg-surface-1 px-2 text-sm tabular-nums hairline outline-none" title="Measured repetitions (plus 1 warm-up)" />
+                </label>
+                <Button size="sm" variant="primary" disabled={gb.running || !installed.length} onClick={() => void runGb()}>
+                  {gb.running ? 'Running…' : 'Run'}
+                </Button>
+              </div>
+              {gb.error && <div className="mt-2 text-xs text-negative">{gb.error}</div>}
+              {gb.results.length > 0 && (
+                <table className="mt-3 w-full text-xs">
+                  <thead className="text-left metadata-sm text-text-secondary">
+                    <tr>
+                      <th className="py-1 pr-2 font-normal">Model</th>
+                      <th className="py-1 pr-2 font-normal">Device</th>
+                      <th className="py-1 pr-2 text-right font-normal">TTFT</th>
+                      <th className="py-1 pr-2 text-right font-normal">Prefill tok/s</th>
+                      <th className="py-1 pr-2 text-right font-normal">Decode tok/s</th>
+                      <th className="py-1 text-right font-normal">pp / tg</th>
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums text-text-primary">
+                    {gb.results.map((r) => (
+                      <tr key={r.at} className="border-t border-border-subtle">
+                        <td className="max-w-56 truncate py-1 pr-2" title={r.model}>
+                          {r.model.split('/').pop()}
+                          {r.specType ? <span className="ml-1 text-text-disabled">{r.specType}</span> : null}
+                        </td>
+                        <td className="py-1 pr-2 text-text-secondary">{r.device}</td>
+                        <td className="py-1 pr-2 text-right">{r.ttftMs.median != null ? `${formatNumber(r.ttftMs.median, 0)} ms` : '—'}<Stdev s={r.ttftMs} unit=" ms" /></td>
+                        <td className="py-1 pr-2 text-right">{r.prefillTps.median != null ? formatNumber(r.prefillTps.median, 0) : '—'}<Stdev s={r.prefillTps} /></td>
+                        <td className="py-1 pr-2 text-right">{r.decodeTps.median != null ? formatNumber(r.decodeTps.median, 1) : '—'}<Stdev s={r.decodeTps} /></td>
+                        <td className="py-1 text-right text-text-secondary">{r.promptTokens} / {r.genTokens} ×{r.repetitions}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Quick in-server benchmark */}
+        <div className="rounded-md bg-surface-2 p-4 hairline-subtle">
+          <div className="mb-2 flex items-center gap-2 metadata-md text-text-secondary">
+            <Gauge className="size-3.5" /> Quick chat benchmark
+          </div>
+          <p className="mb-3 text-xs text-text-secondary">Sends one real prompt through the running server and reports load time, TTFT and decode speed as a chat would see them.</p>
           <div className="flex flex-wrap items-center gap-2">
             <select value={bench.model || installed[0]?.requestIds[0] || ''} onChange={(e) => setBench((b) => ({ ...b, model: e.target.value }))} className="h-8 max-w-64 rounded-sm bg-surface-1 px-2 text-sm hairline outline-none">
               {installed.flatMap((m) => m.requestIds).map((id) => (

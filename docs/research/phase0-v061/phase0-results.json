@@ -1,0 +1,785 @@
+{
+  "t9": {
+    "loadMs": 6584,
+    "noThink": {
+      "status": 200,
+      "ttftMs": 72,
+      "totalMs": 1297,
+      "chunks": 103,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 102,
+        "prompt_tokens": 31,
+        "total_tokens": 133,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Okay, the user wants me to say hello in five words. Let me think. First, I need to respond in five words. So, I'll say \"Hello!\" and then add four more words. That would be \"Hello! Hello!\".\n\nWait, maybe I should check if \"five words\" is the correct answer. Yes, \"five words\" would be \"Hello!\" and \"Hel",
+      "reasoningChars": 0,
+      "error": null,
+      "decodeTps": 82.4
+    },
+    "think": {
+      "status": 200,
+      "ttftMs": 44,
+      "totalMs": 1070,
+      "chunks": 86,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 87,
+        "prompt_tokens": 14,
+        "total_tokens": 101,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "\n\n\"Hello! Hello!\"",
+      "reasoningChars": 293,
+      "error": null,
+      "decodeTps": 83.8
+    },
+    "tool": {
+      "status": 200,
+      "ttftMs": 353,
+      "totalMs": 377,
+      "chunks": 4,
+      "finish": "tool_calls",
+      "usage": {
+        "completion_tokens": 22,
+        "prompt_tokens": 227,
+        "total_tokens": 249,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [
+        {
+          "id": "call_4005687585",
+          "name": "get_weather",
+          "args": "{\"city\": \"Athens\"}"
+        }
+      ],
+      "content": "\n",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t4": {
+    "loadMs": 6436,
+    "imageA": {
+      "status": 200,
+      "ttftMs": 6927,
+      "totalMs": 8110,
+      "chunks": 20,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 18,
+        "prompt_tokens": 151,
+        "total_tokens": 169,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The background of the image is **red**, and the digit on it is **7**.",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "imageB": {
+      "status": 200,
+      "ttftMs": 7137,
+      "totalMs": 8010,
+      "chunks": 20,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 18,
+        "prompt_tokens": 137,
+        "total_tokens": 155,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The background of this image is **blue**, and the digit on it is **3**.",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "recallWithHistoryMedia": {
+      "status": 200,
+      "ttftMs": 162,
+      "totalMs": 1052,
+      "chunks": 20,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 18,
+        "prompt_tokens": 32,
+        "total_tokens": 50,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The digit on the first image is **7**, and its background color is **red**.",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "recallStripped": {
+      "status": 200,
+      "ttftMs": 234,
+      "totalMs": 1316,
+      "chunks": 22,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 20,
+        "prompt_tokens": 110,
+        "total_tokens": 130,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The digit on the first image I sent was **7**, and its background colour was **red**.",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t6": {
+    "path": {
+      "status": 200,
+      "ttftMs": 1961,
+      "totalMs": 2151,
+      "chunks": 6,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 4,
+        "prompt_tokens": 128,
+        "total_tokens": 132,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "\"Mhm.\"",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "dataUrl": {
+      "status": 200,
+      "ttftMs": 2263,
+      "totalMs": 4465,
+      "chunks": 33,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 31,
+        "prompt_tokens": 138,
+        "total_tokens": 169,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Okay, the audio appears to be a person speaking in a conversational tone. The speaker does not sound synthetic; it sounds like a natural human voice.\n",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t8_cpu": {
+    "compute": "cpu",
+    "tooLong": {
+      "status": 200,
+      "ttftMs": 90834,
+      "totalMs": 91162,
+      "chunks": 4,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 7022,
+        "total_tokens": 7024,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Repetition",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "aliveAfterTooLong": true,
+    "fillMidGen": {
+      "status": 200,
+      "ttftMs": 30744,
+      "totalMs": 319117,
+      "chunks": 1957,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 1955,
+        "prompt_tokens": 3038,
+        "total_tokens": 4993,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "In the dense, emerald-green forests of the northern woods, where the trees whispered secrets to the wind and the rivers sang lullabies to the stones, there lived a fox named Fenris. Fenris was not like the others. While most foxes were content to scavenge for food and hunt small creatures, Fenris wa",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "aliveAfterFill": true
+  },
+  "t10": [
+    {
+      "label": "1 gguf 0.6B npu",
+      "model": "unsloth/Qwen3-0.6B-GGUF:Q4_0",
+      "status": 200,
+      "ms": 2148,
+      "content": "OK.",
+      "error": null
+    },
+    {
+      "label": "2 qairt 0.6B",
+      "model": "qualcomm/Qwen3-0.6B:W4A16",
+      "status": 200,
+      "ms": 6430,
+      "content": "تماشا.",
+      "error": null
+    },
+    {
+      "label": "3 gguf 0.6B npu again",
+      "model": "unsloth/Qwen3-0.6B-GGUF:Q4_0",
+      "status": 500,
+      "ms": 1214,
+      "content": "",
+      "error": "{\"code\":-100201,\"error\":\"SDKError(Model loading failed)\"}"
+    },
+    {
+      "label": "4 gguf 0.6B cpu",
+      "model": "unsloth/Qwen3-0.6B-GGUF:Q4_0",
+      "status": 500,
+      "ms": 877,
+      "content": "",
+      "error": "{\"code\":-100201,\"error\":\"SDKError(Model loading failed)\"}"
+    },
+    {
+      "label": "5 qairt 0.6B again",
+      "model": "qualcomm/Qwen3-0.6B:W4A16",
+      "status": 200,
+      "ms": 5603,
+      "content": "تماشا.",
+      "error": null
+    }
+  ],
+  "t4b": {
+    "a": {
+      "status": 200,
+      "ttftMs": 12829,
+      "totalMs": 12858,
+      "chunks": 3,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 144,
+        "total_tokens": 145,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Red",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "b": {
+      "status": 200,
+      "ttftMs": 6855,
+      "totalMs": 6893,
+      "chunks": 3,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 141,
+        "total_tokens": 142,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Blue",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "recallWithMedia": {
+      "status": 200,
+      "ttftMs": 155,
+      "totalMs": 611,
+      "chunks": 11,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 9,
+        "prompt_tokens": 37,
+        "total_tokens": 46,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "first: 7, second: 3",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "recallStripped": {
+      "status": 200,
+      "ttftMs": 194,
+      "totalMs": 649,
+      "chunks": 11,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 9,
+        "prompt_tokens": 78,
+        "total_tokens": 87,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Please provide the images you are referring to.",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t6b": {
+    "transcribe": {
+      "status": 200,
+      "ttftMs": null,
+      "totalMs": 1873,
+      "chunks": 2,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 0,
+        "prompt_tokens": 125,
+        "total_tokens": 125,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "wordForWord": {
+      "status": 200,
+      "ttftMs": 1873,
+      "totalMs": 2131,
+      "chunks": 7,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 5,
+        "prompt_tokens": 136,
+        "total_tokens": 141,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "\"Good morning.\"\n",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "question": {
+      "status": 200,
+      "ttftMs": 1872,
+      "totalMs": 2428,
+      "chunks": 14,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 12,
+        "prompt_tokens": 138,
+        "total_tokens": 150,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The elephant ate a banana on the 3rd day.",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t8_npu": {
+    "compute": "npu",
+    "tooLong": "skipped",
+    "aliveAfterTooLong": true,
+    "fillMidGen": {
+      "error": "TypeError: terminated"
+    },
+    "aliveAfterFill": false
+  },
+  "t4c": {
+    "cpu": {
+      "loadMs": 6747,
+      "image1": {
+        "status": 200,
+        "ttftMs": 6834,
+        "totalMs": 6837,
+        "chunks": 3,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 138,
+          "total_tokens": 139,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Red",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "image2": {
+        "status": 200,
+        "ttftMs": 6943,
+        "totalMs": 6954,
+        "chunks": 3,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 141,
+          "total_tokens": 142,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Blue",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "alive": true
+    },
+    "hybrid": {
+      "loadMs": 9625,
+      "image1": {
+        "status": 200,
+        "ttftMs": 7231,
+        "totalMs": 7269,
+        "chunks": 3,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 138,
+          "total_tokens": 139,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Red",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "image2": {
+        "status": 200,
+        "ttftMs": 7304,
+        "totalMs": 7382,
+        "chunks": 4,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 141,
+          "total_tokens": 143,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Blue.",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "alive": true
+    },
+    "npu": {
+      "loadMs": 6890,
+      "image1": {
+        "status": 200,
+        "ttftMs": 7158,
+        "totalMs": 7195,
+        "chunks": 3,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 138,
+          "total_tokens": 139,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Red",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "image2": {
+        "status": 200,
+        "ttftMs": 7214,
+        "totalMs": 7248,
+        "chunks": 3,
+        "finish": "stop",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 141,
+          "total_tokens": 142,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          }
+        },
+        "toolCalls": [],
+        "content": "Blue",
+        "reasoningChars": 0,
+        "error": null
+      },
+      "alive": true
+    }
+  },
+  "t6c": {
+    "wordForWord": {
+      "status": 200,
+      "ttftMs": 2966,
+      "totalMs": 3131,
+      "chunks": 5,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 3,
+        "prompt_tokens": 213,
+        "total_tokens": 216,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "Mhm.",
+      "reasoningChars": 0,
+      "error": null
+    },
+    "question": {
+      "status": 200,
+      "ttftMs": 2989,
+      "totalMs": 3883,
+      "chunks": 18,
+      "finish": "stop",
+      "usage": {
+        "completion_tokens": 16,
+        "prompt_tokens": 211,
+        "total_tokens": 227,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      "toolCalls": [],
+      "content": "The number mentioned in the recording is four, and the color is blue.\n",
+      "reasoningChars": 0,
+      "error": null
+    }
+  },
+  "t8qairt": {
+    "tooLong": {
+      "status": 200,
+      "ttftMs": null,
+      "totalMs": 6732,
+      "chunks": 0,
+      "finish": null,
+      "usage": null,
+      "toolCalls": [],
+      "content": "",
+      "reasoningChars": 0,
+      "error": "{\"code\":-200103,\"error\":\"SDKError(Input prompt too long)\"}"
+    },
+    "alive": true
+  }
+}
