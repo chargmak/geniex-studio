@@ -17,8 +17,18 @@ const TITLES: Record<string, string> = {
 }
 
 /**
+ * Right padding that keeps the bar's controls clear of the OS window controls when Electron draws them as an
+ * overlay (titleBarStyle: 'hidden' + titleBarOverlay). Chromium exposes the overlay geometry through the Window
+ * Controls Overlay environment variables, so the width is exact at every DPI and caption-button style instead of
+ * a guessed constant. The bar's right edge is the window's right edge and the controls sit at the far right, so
+ * the covered width is `100vw − titlebar-area-x − titlebar-area-width`. Outside Electron the variables are
+ * undefined and the fallbacks reduce this to the normal 16px.
+ */
+const WINDOW_CONTROLS_CLEARANCE = 'calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px)'
+
+/**
  * 40px top bar. In Electron the window's native title bar is hidden (titleBarStyle: 'hidden' + overlay), so this bar is
- * the drag surface and leaves room on the right for the OS window controls (overlay width ≈ 138px on Windows).
+ * the drag surface and leaves room on the right for the OS window controls (see WINDOW_CONTROLS_CLEARANCE).
  */
 export function TopBar({ children }: { children?: React.ReactNode }): React.JSX.Element {
   const { pathname } = useLocation()
@@ -29,10 +39,8 @@ export function TopBar({ children }: { children?: React.ReactNode }): React.JSX.
 
   return (
     <header
-      className={cn(
-        'app-drag flex h-10 shrink-0 items-center gap-3 bg-surface-1 px-4 hairline-b',
-        isElectron && 'pr-[148px]',
-      )}
+      className={cn('app-drag flex h-10 shrink-0 items-center gap-3 bg-surface-1 px-4 hairline-b')}
+      style={isElectron ? { paddingRight: WINDOW_CONTROLS_CLEARANCE } : undefined}
     >
       <h1 className="text-sm font-[560] tracking-[0.01em] text-text-primary">{TITLES[section] ?? 'GenieX Studio'}</h1>
       <div className="app-no-drag flex min-w-0 flex-1 items-center gap-2">{children}</div>

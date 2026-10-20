@@ -30,7 +30,11 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // The preload runs with `sandbox: true`, where `require()` only resolves Electron and a few Node builtins. An
+    // externalized `require('@electron-toolkit/preload')` therefore throws, the whole preload is dropped, and the
+    // renderer never gets `window.studio` (no Electron detection → the top bar runs under the window controls, no
+    // native dialogs, no update pill). Bundle that package into the preload instead.
+    plugins: [externalizeDepsPlugin({ exclude: ['@electron-toolkit/preload'] })],
     resolve: {
       alias: {
         '@shared': resolve('src/shared'),
