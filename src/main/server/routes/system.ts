@@ -73,7 +73,7 @@ systemRoutes.post('/bench/run', async (c) => {
     })
     // Keep the numbers in the same telemetry table the System page charts (per-request samples).
     try {
-      repos.telemetry.insert({ model: result.model, compute: result.device, ttftMs: result.ttftMs.median, totalMs: null, promptTokens: result.promptTokens, completionTokens: result.genTokens, tokensPerSecond: result.decodeTps.median, loadMs: null, finishReason: 'bench', conversationId: null })
+      repos.telemetry.insert({ model: result.model, compute: result.device, ttftMs: result.ttftMs.median, totalMs: null, promptTokens: result.promptTokens, completionTokens: result.genTokens, tokensPerSecond: result.decodeTps.median, prefillTokensPerSecond: result.prefillTps.median, loadMs: null, finishReason: 'bench', conversationId: null })
     } catch {
       /* telemetry is best-effort */
     }
@@ -90,7 +90,7 @@ systemRoutes.post('/benchmark', async (c) => {
   if (!body.model) return c.json({ error: 'model required' }, 400)
   const started = Date.now()
   let out = ''
-  let done: { ttftMs: number | null; totalMs: number; tokensPerSecond: number | null; completionTokens: number | null } | null = null
+  let done: { ttftMs: number | null; totalMs: number; tokensPerSecond: number | null; prefillTokensPerSecond: number | null; completionTokens: number | null } | null = null
   let loadMs: number | null = null
   let error: string | null = null
   for await (const ev of client.chatStream({
@@ -101,7 +101,7 @@ systemRoutes.post('/benchmark', async (c) => {
   })) {
     if (ev.type === 'delta' && ev.content) out += ev.content
     if (ev.type === 'model-ready') loadMs = ev.loadMs
-    if (ev.type === 'done') done = { ttftMs: ev.ttftMs, totalMs: ev.totalMs, tokensPerSecond: ev.tokensPerSecond, completionTokens: ev.completionTokens }
+    if (ev.type === 'done') done = { ttftMs: ev.ttftMs, totalMs: ev.totalMs, tokensPerSecond: ev.tokensPerSecond, prefillTokensPerSecond: ev.prefillTokensPerSecond, completionTokens: ev.completionTokens }
     if (ev.type === 'error') error = ev.message
   }
   return c.json({ model: body.model, compute: body.compute ?? null, loadMs, ...done, error, chars: out.length, wallMs: Date.now() - started })

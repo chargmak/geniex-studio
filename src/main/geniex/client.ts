@@ -13,6 +13,7 @@ import { runtimeOfModel } from '@shared/modelSelect'
 import type { SettingsStore } from '../settings'
 import { isContextOverflowCode } from '../chat/context'
 import { parseSse, readAllText, sniffBody } from '../util/sse'
+import { explainLoadFailure, explainLoadStall, isModelLoadFailure, MODEL_LOAD_FAILED, MODEL_LOAD_FAILED_CODE, MODEL_LOAD_TIMEOUT, parseTimings, WARMUP_TIMEOUT_MS } from './protocol'
 import type { GenieXSupervisor } from './supervisor'
 
 export class GenieXHttpError extends Error {
@@ -45,6 +46,8 @@ interface UpstreamChunk {
     total_tokens?: number
     completion_tokens_details?: { accepted_prediction_tokens?: number; rejected_prediction_tokens?: number }
   }
+  /** GenieX ≥ 0.7.1: on the final `include_usage` chunk (and on blocking responses). */
+  timings?: unknown
   error?: unknown
   code?: number | string
 }
@@ -112,7 +115,8 @@ function sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 
 /** Human explanation for a runtime crash, by what the supervisor saw in the log before the exit. */
-export function explainRuntimeCrash(model: string | null, code: string, kind: 'model' | 'context_overflow' | 'unknown' = 'model'): string {
+export function explainRuntimeCrash(model: string | null, code: string, kind: 'model' | 'context_overflow' | 'load_failure' | 'unknown' = 'model'): string {
+  if (kind === 'load_failure') return explainLoadFailure(model ?? 'the model')
   if (kind === 'context_overflow') {
     return (
       `The context window overflowed while ${model ?? 'the model'} was running on the NPU, and GenieX's llama.cpp backend aborted ` +
@@ -137,6 +141,7 @@ export interface TelemetrySample {
   promptTokens: number | null
   completionTokens: number | null
   tokensPerSecond: number | null
+  prefillTokensPerSecond: number | null
   loadMs: number | null
   finishReason: string | null
   conversationId: string | null
@@ -147,13 +152,21 @@ export class GenieXClient {
   private residentKey: string | null = null
   /** Set by bootstrap to persist per-request performance samples. */
   recorder: ((s: TelemetrySample) => void) | null = null
+  private readonly warmUpTimeoutMs: number
 
   constructor(
     private readonly sup: GenieXSupervisor,
     private readonly settings: SettingsStore,
+    opts: { warmUpTimeoutMs?: number } = {},
   ) {
+    this.warmUpTimeoutMs = opts.warmUpTimeoutMs ?? WARMUP_TIMEOUT_MS
     sup.on('state', (s) => {
       if (s !== 'running') this.residentKey = null
+    })
+    // GET /status (GenieX ≥ 0.9.3) said the model we believed resident is gone (keep-alive eviction, or another
+    // client loaded something else): the next turn must warm up again and say so.
+    sup.on('evicted', () => {
+      this.residentKey = null
     })
   }
 
@@ -276,6 +289,57 @@ export class GenieXClient {
     return new GenieXHttpError(message, res.status, code, parsed)
   }
 
+  /**
+   * Turn a non-2xx response into the error the caller throws. A refused model load (HTTP 500
+   * `-100201 SDKError(Model loading failed)`, GenieX 0.9.x with QAIRT-2.45 AI Hub bundles) is handled here: it
+   * is recorded against the model like a crash and the server is restarted (it was observed to hang afterwards).
+   * It is never retried — the next attempt is the user's, and auto-selection no longer picks the model.
+   */
+  private async rejectResponse(res: Response, model: string): Promise<GenieXHttpError> {
+    const err = await this.readError(res)
+    return isModelLoadFailure(err.status, err.code, err.message) ? this.handleLoadFailure(model, err) : err
+  }
+
+  private async handleLoadFailure(model: string, err: GenieXHttpError): Promise<GenieXHttpError> {
+    const code = String(err.code ?? MODEL_LOAD_FAILED_CODE)
+    this.residentKey = null
+    this.sup.recordLoadFailure(model, code)
+    let restarted = false
+    if (this.sup.managedRunning) {
+      this.sup.log('studio', `restarting GenieX after the refused load of ${model} (the process does not recover reliably)`)
+      try {
+        await this.sup.restart()
+        restarted = true
+      } catch (e) {
+        this.sup.log('studio', `restart after the refused load failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    return new GenieXHttpError(explainLoadFailure(model, { cliVersion: this.sup.cliVersion, qairtVersion: this.sup.qairtVersion, restarted }), 500, MODEL_LOAD_FAILED, err.body)
+  }
+
+  /**
+   * The warm-up neither succeeded nor failed within the deadline: the server is wedged in `state: loading` (seen
+   * with QAIRT bundles on v0.9.3) and nothing else can get through. Restart it. AI Hub bundles are recorded like a
+   * refused load (same cause); anything else is not blamed for a slow load.
+   */
+  private async handleLoadStall(model: string): Promise<GenieXHttpError> {
+    this.residentKey = null
+    const isAiHub = runtimeOfModel(model) === 'qairt'
+    if (isAiHub) this.sup.recordLoadFailure(model, 'timeout')
+    let restarted = false
+    if (this.sup.managedRunning) {
+      this.sup.log('studio', `warm-up of ${model} exceeded ${Math.round(this.warmUpTimeoutMs / 1000)} s; restarting GenieX`)
+      try {
+        await this.sup.restart()
+        restarted = true
+      } catch (e) {
+        this.sup.log('studio', `restart after the stalled load failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    const info = { timeoutMs: this.warmUpTimeoutMs, cliVersion: this.sup.cliVersion, qairtVersion: this.sup.qairtVersion, restarted }
+    return new GenieXHttpError(explainLoadStall(model, info), 504, isAiHub ? MODEL_LOAD_FAILED : MODEL_LOAD_TIMEOUT)
+  }
+
   // ------------------------------------------------------------ warm-up (explicit model load)
 
   /**
@@ -294,14 +358,32 @@ export class GenieXClient {
     const body = this.buildBody({ model, messages: [], options }, false)
     body.max_tokens = 1
     body.max_completion_tokens = 1
-    const res = await fetch(`${this.base}/v1/chat/completions`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-      signal,
-    })
-    if (!res.ok) throw await this.readError(res)
-    await res.text().catch(() => '')
+    // A load that hangs (server wedged in `state: loading`) would otherwise show "loading model" until the user
+    // gives up; the deadline turns it into a diagnosed failure and a restart.
+    const deadline = AbortSignal.timeout(this.warmUpTimeoutMs)
+    let res: Response
+    try {
+      res = await fetch(`${this.base}/v1/chat/completions`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+      })
+      if (res.ok) await res.text().catch(() => '')
+    } catch (e) {
+      if (deadline.aborted && !signal?.aborted) {
+        const err = await this.handleLoadStall(model)
+        this.sup.activeModel = previousActive
+        throw err
+      }
+      throw e
+    }
+    if (!res.ok) {
+      const err = await this.rejectResponse(res, model)
+      // A refused load leaves the process alive (and already recorded): nothing is left to attribute to this model.
+      if (err.code === MODEL_LOAD_FAILED) this.sup.activeModel = previousActive
+      throw err
+    }
     // Only on success — a failure here may be the runtime dying, and the exit handler still needs activeModel
     // to attribute the crash to this model.
     this.sup.activeModel = previousActive
@@ -320,6 +402,10 @@ export class GenieXClient {
   private async translateFailure(err: unknown, model: string): Promise<unknown> {
     const e = err as Error & { cause?: { code?: string }; name?: string }
     if (e?.name === 'AbortError') return err
+    // A refused load can also surface as an error frame inside the SSE stream (status 200 + SDK code).
+    if (err instanceof GenieXHttpError && err.code !== MODEL_LOAD_FAILED && isModelLoadFailure(err.status, err.code, err.message)) {
+      return this.handleLoadFailure(model, err)
+    }
     // Stopping the server ourselves (Stop button, restart, app quit) drops any in-flight connection. That is not a
     // model crash, and blaming the in-flight model would permanently blacklist it in runtime-crashes.json.
     if (this.sup.stoppedIntentionally) return err
@@ -373,6 +459,9 @@ export class GenieXClient {
 
           // Explicit load when the resident model/options differ so the UI can show a proper "loading" state.
           const key = optionsKey(body.model, body.options, this.serveDefaults())
+          // Where the server can tell us (GET /status, ≥ 0.9.3), check that the model is still resident: after a
+          // keep-alive eviction the reload is announced as "loading model" instead of looking like a slow TTFT.
+          if (this.residentKey === key && this.sup.server.supported !== false) await this.sup.refreshServerStatus()
           let loadMs: number | null = null
           if (this.residentKey !== key) {
             push({ type: 'model-loading', model: body.model })
@@ -387,6 +476,7 @@ export class GenieXClient {
           let usageCompletion: number | null = null
           let usagePrompt: number | null = null
           let finish: string | null = null
+          let timings: ReturnType<typeof parseTimings> = null
           const toolAcc = new Map<number, ChatToolCall>()
 
           const res = await fetch(`${this.base}/v1/chat/completions`, {
@@ -395,7 +485,7 @@ export class GenieXClient {
             body: JSON.stringify(this.buildBody(body, true)),
             signal,
           })
-          if (!res.ok || !res.body) throw await this.readError(res)
+          if (!res.ok || !res.body) throw await this.rejectResponse(res, body.model)
 
           // GenieX sometimes omits Content-Type on streaming responses; sniff the body instead of trusting headers.
           const sniffed = await sniffBody(res.body)
@@ -404,7 +494,9 @@ export class GenieXClient {
             const json = JSON.parse(await readAllText(sniffed.stream)) as {
               choices?: { message?: { content?: string; reasoning_content?: string; tool_calls?: ChatToolCall[] }; finish_reason?: string }[]
               usage?: UpstreamChunk['usage']
+              timings?: unknown
             }
+            timings = parseTimings(json.timings)
             const ch = json.choices?.[0]
             if (ch?.message?.reasoning_content) push({ type: 'delta', reasoning: ch.message.reasoning_content })
             if (ch?.message?.content) push({ type: 'delta', content: ch.message.content })
@@ -468,6 +560,7 @@ export class GenieXClient {
                 }
               }
               if (choice?.finish_reason) finish = choice.finish_reason
+              if (chunk.timings !== undefined) timings = parseTimings(chunk.timings) ?? timings
               if (chunk.usage) {
                 usageCompletion = chunk.usage.completion_tokens ?? null
                 usagePrompt = chunk.usage.prompt_tokens ?? null
@@ -500,15 +593,20 @@ export class GenieXClient {
           this.residentKey = key
           this.sup.residentModel = body.model
           this.sup.residentSince = this.sup.residentSince ?? endAt
-          const completionTokens = usageCompletion ?? (completionTokensSeen || null)
+          const completionTokens = usageCompletion ?? timings?.predictedTokens ?? (completionTokensSeen || null)
           const decodeMs = firstTokenAt && lastTokenAt && lastTokenAt > firstTokenAt ? lastTokenAt - firstTokenAt : null
+          // Server-measured speeds (`timings`, GenieX ≥ 0.7.1) are exact; the wall-clock estimate from streamed
+          // deltas stays as the fallback for older CLIs. TTFT is wall-clock either way (the server has none).
+          const wallTps = completionTokens && decodeMs && completionTokens > 1 ? ((completionTokens - 1) / decodeMs) * 1000 : null
           const doneEv = {
             type: 'done' as const,
             finish_reason: finish ?? 'stop',
             ttftMs: firstTokenAt ? firstTokenAt - sentAt : null,
             totalMs: endAt - sentAt,
             completionTokens,
-            tokensPerSecond: completionTokens && decodeMs && completionTokens > 1 ? ((completionTokens - 1) / decodeMs) * 1000 : null,
+            tokensPerSecond: timings?.decodeTokensPerSecond ?? wallTps,
+            prefillTokensPerSecond: timings?.prefillTokensPerSecond ?? null,
+            timingsSource: timings?.decodeTokensPerSecond != null ? ('server' as const) : wallTps != null ? ('wall-clock' as const) : null,
           }
           push(doneEv)
           try {
@@ -520,6 +618,7 @@ export class GenieXClient {
               promptTokens: usagePrompt,
               completionTokens,
               tokensPerSecond: doneEv.tokensPerSecond,
+              prefillTokensPerSecond: doneEv.prefillTokensPerSecond,
               loadMs,
               finishReason: doneEv.finish_reason,
               conversationId: body.conversationId ?? null,
@@ -552,7 +651,7 @@ export class GenieXClient {
         const err = failure as Error & { status?: number; code?: string | number }
         const cancelled = err?.name === 'AbortError' || signal?.aborted
         yield cancelled
-          ? { type: 'done', finish_reason: 'cancelled', ttftMs: null, totalMs: 0, completionTokens: null, tokensPerSecond: null }
+          ? { type: 'done', finish_reason: 'cancelled', ttftMs: null, totalMs: 0, completionTokens: null, tokensPerSecond: null, prefillTokensPerSecond: null, timingsSource: null }
           : { type: 'error', message: err?.message ?? String(failure), code: err?.code, status: err?.status }
       }
     } finally {
@@ -593,7 +692,7 @@ export class GenieXClient {
           }),
           signal,
         })
-        if (!res.ok) throw await this.readError(res)
+        if (!res.ok) throw await this.rejectResponse(res, body.model)
         const json = (await res.json()) as { choices?: { text?: string; finish_reason?: string }[]; usage?: unknown }
         this.sup.residentModel = body.model
         return { text: json.choices?.[0]?.text ?? '', finish_reason: json.choices?.[0]?.finish_reason ?? null, usage: json.usage ?? null }

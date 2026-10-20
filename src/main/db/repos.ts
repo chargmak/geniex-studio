@@ -301,16 +301,18 @@ export class TelemetryRepo {
     promptTokens: number | null
     completionTokens: number | null
     tokensPerSecond: number | null
+    /** Server-measured prefill speed (GenieX ≥ 0.7.1 `timings`); null when the CLI does not report it. */
+    prefillTokensPerSecond?: number | null
     loadMs: number | null
     finishReason: string | null
     conversationId: string | null
   }): void {
     this.db
       .prepare(
-        `INSERT INTO telemetry (ts, model, compute, ttft_ms, total_ms, prompt_tokens, completion_tokens, tokens_per_second, load_ms, finish_reason, conversation_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO telemetry (ts, model, compute, ttft_ms, total_ms, prompt_tokens, completion_tokens, tokens_per_second, prefill_tokens_per_second, load_ms, finish_reason, conversation_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(Date.now(), s.model, s.compute, s.ttftMs, s.totalMs, s.promptTokens, s.completionTokens, s.tokensPerSecond, s.loadMs, s.finishReason, s.conversationId)
+      .run(Date.now(), s.model, s.compute, s.ttftMs, s.totalMs, s.promptTokens, s.completionTokens, s.tokensPerSecond, s.prefillTokensPerSecond ?? null, s.loadMs, s.finishReason, s.conversationId)
   }
 
   recent(limit = 200): unknown[] {
@@ -320,7 +322,7 @@ export class TelemetryRepo {
   summaryByModel(): unknown[] {
     return this.db
       .prepare(
-        `SELECT model, compute, COUNT(*) AS n, AVG(tokens_per_second) AS avg_tps, AVG(ttft_ms) AS avg_ttft, MAX(ts) AS last_ts
+        `SELECT model, compute, COUNT(*) AS n, AVG(tokens_per_second) AS avg_tps, AVG(prefill_tokens_per_second) AS avg_prefill_tps, AVG(ttft_ms) AS avg_ttft, MAX(ts) AS last_ts
          FROM telemetry WHERE tokens_per_second IS NOT NULL GROUP BY model, compute ORDER BY last_ts DESC`,
       )
       .all()

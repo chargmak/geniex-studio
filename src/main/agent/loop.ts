@@ -310,6 +310,8 @@ export class AgentRunner {
               metrics.ttftMs = ev.ttftMs
               metrics.totalMs = ev.totalMs
               metrics.tokensPerSecond = ev.tokensPerSecond
+              metrics.prefillTokensPerSecond = ev.prefillTokensPerSecond
+              metrics.timingsSource = ev.timingsSource
               metrics.finishReason = ev.finish_reason
               finish = ev.finish_reason
               break

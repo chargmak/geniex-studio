@@ -2,14 +2,16 @@ import { EventEmitter } from 'node:events'
 import { dirname } from 'node:path'
 import { CrashLog } from './crashLog'
 import type { ChildProcess } from 'node:child_process'
-import type { CrashKind, GenieServerState, GenieServerStatus, GenieServeSettings } from '@shared/api'
+import type { CrashKind, GenieLiveServerStatus, GenieServerState, GenieServerStatus, GenieServeSettings } from '@shared/api'
 import type { Runtime } from '@shared/config'
 import { isCliVersionSupported, MIN_GENIEX_VERSION } from '@shared/config'
+import { bareModelName } from '@shared/modelSelect'
 import type { SettingsStore } from '../settings'
 import { RingBuffer } from '../util/ringBuffer'
 import { killTree } from '../util/killTree'
 import { findGenieXCli } from './paths'
 import { configureGeniexEnv, parseChipset, parseVersion, runGeniex, spawnGeniex } from './cli'
+import { parseServerStatus } from './protocol'
 
 export interface LogLine {
   ts: number
@@ -38,9 +40,12 @@ const OVERFLOW_ATTRIBUTION_MS = 15_000
  */
 const OVERFLOW_SIGNATURE = /cannot run the operation \(ROPE\)|Context shifting - discarding|failed to find a memory slot for batch/i
 
+const noServerStatus = (): GenieLiveServerStatus => ({ supported: null, checkedAt: null, models: [] })
+
 /**
  * Owns the `geniex serve` process (or attaches to an external one), tracks health, keeps a log ring buffer,
- * and exposes the "resident model / busy" bookkeeping the client updates. Emits: 'state', 'log', 'status'.
+ * and exposes the "resident model / busy" bookkeeping the client updates. Emits: 'state', 'log', 'status', and
+ * 'evicted' (the server no longer holds the model the client believed resident — see `refreshServerStatus`).
  */
 export class GenieXSupervisor extends EventEmitter {
   private state: GenieServerState = 'stopped'
@@ -59,9 +64,11 @@ export class GenieXSupervisor extends EventEmitter {
 
   readonly logs = new RingBuffer<LogLine>(1000)
 
-  /** Updated by GenieXClient. */
+  /** Updated by GenieXClient; corrected from `GET /status` on CLIs that have it (≥ 0.9.3). */
   residentModel: string | null = null
   residentSince: number | null = null
+  /** Last `GET /status` answer for this server start (probed once; 404 → `supported: false`, bookkeeping stays). */
+  server: GenieLiveServerStatus = noServerStatus()
   busy = false
   queueDepth = 0
   /** Model a request is currently loading/using — attributed to a crash if the process dies mid-request. */
@@ -102,6 +109,22 @@ export class GenieXSupervisor extends EventEmitter {
     this.crashLog.clear(model)
     if (model) this.crashedModels.delete(model)
     else this.crashedModels.clear()
+    this.emit('status')
+  }
+
+  /**
+   * The server refused to load `model` (HTTP 500 `-100201 SDKError(Model loading failed)`) but stayed alive.
+   * Recorded like a crash — stamped with the CLI version, pruned when the CLI changes — so auto-selection and the
+   * picker avoid the model, and surfaced as `lastCrash` with kind 'load_failure'. Never retried automatically.
+   */
+  recordLoadFailure(model: string, code: string): void {
+    this.crashedModels.set(model, this.crashLog.record(model, code, this.cli.version, 'load_failure'))
+    this.lastCrash = { at: Date.now(), code, model, kind: 'load_failure' }
+    if (this.residentModel === model) {
+      this.residentModel = null
+      this.residentSince = null
+    }
+    this.log('studio', `model load refused by the server for ${model} (code ${code}); recorded under GenieX ${this.cli.version ?? '?'}`)
     this.emit('status')
   }
 
@@ -146,6 +169,10 @@ export class GenieXSupervisor extends EventEmitter {
 
   get cliVersion(): string | null {
     return this.cli.version
+  }
+
+  get qairtVersion(): string | null {
+    return this.cli.qairt
   }
 
   /** True when Studio spawned the process and it is alive, i.e. a restart is ours to do. */
@@ -198,6 +225,7 @@ export class GenieXSupervisor extends EventEmitter {
       lastError: this.lastError,
       residentModel: this.residentModel,
       residentSince: this.residentSince,
+      server: this.server,
       busy: this.busy,
       queueDepth: this.queueDepth,
       settings: this.serveSettings,
@@ -229,6 +257,69 @@ export class GenieXSupervisor extends EventEmitter {
     }
   }
 
+  // ------------------------------------------------------------ GET /status (GenieX ≥ 0.9.3)
+
+  /**
+   * Ask the server what it holds. Probed once per server start: a 404 marks the endpoint unsupported for this
+   * start and Studio keeps its own resident-model bookkeeping. On support, the answer corrects `residentModel`
+   * and `residentSince`; an empty list after a known resident model means keep-alive eviction → 'evicted' is
+   * emitted so the client announces the next turn as a reload instead of a surprise.
+   */
+  async refreshServerStatus(timeoutMs = 1500): Promise<GenieLiveServerStatus> {
+    if (this.state !== 'running' || this.server.supported === false) return this.server
+    try {
+      const res = await fetch(`${this.baseUrl}/status`, { signal: AbortSignal.timeout(timeoutMs) })
+      if (res.status === 404 || res.status === 405) {
+        this.server = { supported: false, checkedAt: Date.now(), models: [] }
+        this.log('studio', 'GET /status is not served by this GenieX (< 0.9.3): the resident model is tracked from Studio requests')
+        this.emit('status')
+        return this.server
+      }
+      if (!res.ok) return this.server
+      const parsed = parseServerStatus(await res.json())
+      if (!parsed) {
+        if (this.server.supported === null) {
+          this.server = { supported: false, checkedAt: Date.now(), models: [] }
+          this.log('studio', 'GET /status answered with an unexpected body; ignoring it for this server start')
+          this.emit('status')
+        }
+        return this.server
+      }
+      this.applyServerStatus(parsed)
+    } catch {
+      /* transient (server busy with a load, or stopping); keep the last answer */
+    }
+    return this.server
+  }
+
+  private applyServerStatus(next: GenieLiveServerStatus): void {
+    const before = JSON.stringify(this.server.models)
+    const supportedBefore = this.server.supported
+    this.server = next
+    const live = next.models[0] ?? null
+    const believed = this.residentModel
+    if (!live) {
+      if (believed) {
+        this.log('studio', `server reports no model loaded: ${believed} was evicted (keep-alive ${this.settings.get().genie.keepaliveSeconds}s)`)
+        this.residentModel = null
+        this.residentSince = null
+        this.emit('evicted', believed)
+      }
+    } else if (!believed) {
+      this.residentModel = live.id
+      this.residentSince = live.loadedAt ?? Date.now()
+    } else if (bareModelName(live.id) !== bareModelName(believed)) {
+      // Something else (an external client, or the server itself) loaded a different model.
+      this.log('studio', `server reports ${live.id} loaded instead of ${believed}`)
+      this.residentModel = live.id
+      this.residentSince = live.loadedAt ?? Date.now()
+      this.emit('evicted', believed)
+    } else if (live.loadedAt && !this.residentSince) {
+      this.residentSince = live.loadedAt
+    }
+    if (before !== JSON.stringify(next.models) || supportedBefore !== next.supported) this.emit('status')
+  }
+
   // ------------------------------------------------------------ lifecycle
 
   async start(): Promise<void> {
@@ -243,6 +334,7 @@ export class GenieXSupervisor extends EventEmitter {
   private async doStart(): Promise<void> {
     this.intentionalStop = false
     this.qairtLoadedSinceStart = false
+    this.server = noServerStatus()
     await this.probeCli()
     const g = this.settings.get().genie
 
@@ -314,6 +406,7 @@ export class GenieXSupervisor extends EventEmitter {
         }
         this.residentModel = null
         this.residentSince = null
+        this.server = noServerStatus()
         this.setState('error', `geniex serve exited unexpectedly (code ${code ?? signal ?? '?'})`)
         if (wasRunning && this.restartAttempts < 3) {
           this.restartAttempts++
@@ -337,6 +430,7 @@ export class GenieXSupervisor extends EventEmitter {
         this.setState('running')
         this.log('studio', `healthy at ${this.baseUrl}`)
         this.startPolling()
+        void this.refreshServerStatus()
         return
       }
       await new Promise((r) => setTimeout(r, 400))
@@ -354,6 +448,7 @@ export class GenieXSupervisor extends EventEmitter {
     this.log('studio', `attached to existing GenieX server at ${this.baseUrl}`)
     this.setState('running')
     this.startPolling()
+    void this.refreshServerStatus()
   }
 
   async stop(): Promise<void> {
@@ -373,6 +468,7 @@ export class GenieXSupervisor extends EventEmitter {
     this.managed = false
     this.residentModel = null
     this.residentSince = null
+    this.server = noServerStatus()
     this.qairtLoadedSinceStart = false
     this.setState('stopped')
   }
@@ -411,7 +507,11 @@ export class GenieXSupervisor extends EventEmitter {
     if (this.state !== 'running') return
     if (this.busy) return // a long generation may make /v1/ slow to answer; skip
     const ok = await this.isHealthy()
-    if (ok) return
+    if (ok) {
+      // /status is served outside the request lock, so this is cheap; it notices keep-alive eviction.
+      if (this.server.supported !== false) await this.refreshServerStatus()
+      return
+    }
     if (this.managed) {
       if (this.proc && this.proc.exitCode === null) return // still alive, maybe under load
       this.setState('error', 'GenieX server stopped responding')

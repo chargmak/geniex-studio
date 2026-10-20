@@ -172,4 +172,11 @@ export const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_chunks_source ON knowledge_chunks(source_id);
     `,
   },
+  {
+    // GenieX ≥ 0.7.1 reports server-measured prefill speed in `timings.prompt_per_second`; NULL on older CLIs.
+    version: 3,
+    sql: `
+      ALTER TABLE telemetry ADD COLUMN prefill_tokens_per_second REAL;
+    `,
+  },
 ]

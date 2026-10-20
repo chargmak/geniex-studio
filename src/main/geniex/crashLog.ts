@@ -32,7 +32,13 @@ export class CrashLog {
           for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
             const r = v as Partial<CrashRecord>
             if (typeof r?.count === 'number' && typeof r?.lastAt === 'number') {
-              out[k] = { count: r.count, lastAt: r.lastAt, code: String(r.code ?? '?'), cliVersion: typeof r.cliVersion === 'string' ? r.cliVersion : null }
+              out[k] = {
+                count: r.count,
+                lastAt: r.lastAt,
+                code: String(r.code ?? '?'),
+                cliVersion: typeof r.cliVersion === 'string' ? r.cliVersion : null,
+                ...(r.kind === 'load_failure' ? { kind: 'load_failure' as const } : {}),
+              }
             }
           }
           return out
@@ -67,9 +73,19 @@ export class CrashLog {
     return this.value[model]
   }
 
-  record(model: string, code: string, cliVersion: string | null = null): CrashRecord {
+  /**
+   * `kind` 'load_failure' marks a refused load (server stayed up, HTTP 500 "Model loading failed") as opposed to a
+   * process crash; the UI words it differently and `pickAutoModel` treats a QAIRT load failure as catalogue-wide.
+   */
+  record(model: string, code: string, cliVersion: string | null = null, kind: 'crash' | 'load_failure' = 'crash'): CrashRecord {
     const prev = this.value[model]
-    const next: CrashRecord = { count: (prev?.count ?? 0) + 1, lastAt: Date.now(), code, cliVersion: cliVersion ?? prev?.cliVersion ?? null }
+    const next: CrashRecord = {
+      count: (prev?.count ?? 0) + 1,
+      lastAt: Date.now(),
+      code,
+      cliVersion: cliVersion ?? prev?.cliVersion ?? null,
+      ...(kind === 'load_failure' ? { kind } : {}),
+    }
     this.value[model] = next
     this.save()
     return next

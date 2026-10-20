@@ -184,8 +184,15 @@ export const AssistantMessage = memo(function AssistantMessage({
             )}
             {m && (m.tokensPerSecond != null || m.ttftMs != null) && (
               <span className="ml-2 flex items-center gap-2 metadata-sm text-text-disabled">
-                {m.tokensPerSecond != null && <span>{formatNumber(m.tokensPerSecond)} tok/s</span>}
-                {m.ttftMs != null && <span>TTFT {formatDuration(m.ttftMs)}</span>}
+                {m.tokensPerSecond != null && (
+                  <span title={m.timingsSource === 'server' ? 'Decode speed measured by the GenieX server (timings.predicted_per_second)' : 'Decode speed estimated from streamed tokens (this GenieX reports no timings)'}>
+                    {formatNumber(m.tokensPerSecond)} tok/s
+                  </span>
+                )}
+                {m.prefillTokensPerSecond != null && (
+                  <span title="Prefill speed measured by the GenieX server (timings.prompt_per_second)">prefill {formatNumber(m.prefillTokensPerSecond, 0)} tok/s</span>
+                )}
+                {m.ttftMs != null && <span title="Wall-clock time to the first token">TTFT {formatDuration(m.ttftMs)}</span>}
                 {m.completionTokens != null && <span>{m.completionTokens} tok</span>}
                 {m.loadMs != null && m.loadMs > 500 && <span>load {formatDuration(m.loadMs)}</span>}
                 {m.specType && m.acceptedTokens != null && m.completionTokens ? (

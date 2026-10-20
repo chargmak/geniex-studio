@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CachedModel } from '@shared/api'
+import { hasQairtLoadFailure } from '@shared/modelSelect'
 import { bareModelName, crashRecordFor, findInstalled, pickAutoModel, runtimeOfModel } from './select'
 
 const model = (name: string, runtime: string, requestIds: string[], extra: Partial<CachedModel> = {}): CachedModel => ({
@@ -22,6 +23,8 @@ const INSTALLED = [
   model('unsloth/Qwen3-4B-GGUF', 'llama_cpp', ['unsloth/Qwen3-4B-GGUF:Q4_0'], { sizeBytes: 2_400_000_000 }),
 ]
 const crash = (n = 1) => ({ count: n, lastAt: Date.now(), code: '0xC0000005' })
+/** GenieX 0.9.3 refusing a QAIRT-2.45 AI Hub bundle: HTTP 500 -100201, process alive. */
+const loadFailure = (n = 1) => ({ count: n, lastAt: Date.now(), code: '-100201', cliVersion: 'v0.9.3', kind: 'load_failure' as const })
 
 describe('pickAutoModel', () => {
   it('returns null when nothing is installed', () => {
@@ -42,6 +45,25 @@ describe('pickAutoModel', () => {
     const withUntried = [...INSTALLED, model('qualcomm/Qwen3-4B', 'qairt', ['qualcomm/Qwen3-4B'], { sizeBytes: 4_000_000_000 })]
     const picked = pickAutoModel(withUntried, { crashed: { 'qualcomm/Qwen3-0.6B': crash() } })
     expect(picked).toBe('qualcomm/Qwen3-4B')
+  })
+
+  it('a QAIRT *load failure* sidelines the untried AI Hub bundles too (v0.9.3: every bundle is compiled for QAIRT 2.45)', () => {
+    const withUntried = [...INSTALLED, model('qualcomm/Qwen3-4B', 'qairt', ['qualcomm/Qwen3-4B'], { sizeBytes: 4_000_000_000 })]
+    const crashed = { 'qualcomm/Qwen3-0.6B': loadFailure() }
+    expect(hasQairtLoadFailure(crashed)).toBe(true)
+    expect(pickAutoModel(withUntried, { crashed })).toBe('unsloth/Qwen3-4B-GGUF:Q4_0')
+    // The saved preference is no exception: a sidelined bundle is not auto-selected either.
+    expect(pickAutoModel(withUntried, { crashed, preferred: 'qualcomm/Qwen3-4B' })).toBe('unsloth/Qwen3-4B-GGUF:Q4_0')
+    // A GGUF load failure says nothing about the QAIRT catalogue.
+    expect(hasQairtLoadFailure({ 'unsloth/Qwen3-4B-GGUF:Q4_0': loadFailure() })).toBe(false)
+    expect(hasQairtLoadFailure(undefined)).toBe(false)
+  })
+
+  it('still returns a sidelined QAIRT bundle when nothing else is installed, and prefers it over a model that actually crashed', () => {
+    const qairtOnly = [model('qualcomm/Qwen3-4B', 'qairt', ['qualcomm/Qwen3-4B']), model('qualcomm/Qwen3-0.6B', 'qairt', ['qualcomm/Qwen3-0.6B'])]
+    expect(pickAutoModel(qairtOnly, { crashed: { 'qualcomm/Qwen3-0.6B': loadFailure() } })).toBe('qualcomm/Qwen3-4B')
+    const mixed = [...qairtOnly, model('unsloth/Qwen3-4B-GGUF', 'llama_cpp', ['unsloth/Qwen3-4B-GGUF:Q4_0'])]
+    expect(pickAutoModel(mixed, { crashed: { 'qualcomm/Qwen3-0.6B': loadFailure(), 'unsloth/Qwen3-4B-GGUF:Q4_0': crash() } })).toBe('qualcomm/Qwen3-4B')
   })
 
   it('accepts a saved preference in the precision-qualified form /v1/models reports', () => {

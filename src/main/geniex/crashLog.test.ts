@@ -44,6 +44,17 @@ describe('CrashLog', () => {
     expect(log.prune(null)).toEqual([]) // unknown current version: nothing is touched
   })
 
+  it('records a refused load (v0.9.3 "Model loading failed") as kind load_failure and keeps it across reloads', () => {
+    const log = new CrashLog(dir)
+    log.record('qualcomm/Qwen3-1.7B', '-100201', 'v0.9.3', 'load_failure')
+    log.record('unsloth/Qwen3-4B-GGUF:Q4_0', '3', 'v0.9.3')
+    const reloaded = new CrashLog(dir)
+    expect(reloaded.get('qualcomm/Qwen3-1.7B')).toEqual({ count: 1, lastAt: expect.any(Number), code: '-100201', cliVersion: 'v0.9.3', kind: 'load_failure' })
+    expect(reloaded.get('unsloth/Qwen3-4B-GGUF:Q4_0')).not.toHaveProperty('kind')
+    // Pruned with the rest when the CLI changes — the whole point of stamping it.
+    expect(reloaded.prune('v0.9.4')).toEqual(expect.arrayContaining(['qualcomm/Qwen3-1.7B']))
+  })
+
   it('constructing an instance never rewrites existing history', () => {
     const file = join(dir, 'runtime-crashes.json')
     const seeded = { 'qualcomm/Qwen3-0.6B': { count: 1, lastAt: 1700000000000, code: '0xC0000005' } }

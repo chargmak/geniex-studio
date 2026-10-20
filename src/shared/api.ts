@@ -37,17 +37,28 @@ export interface GenieServerStatus {
   chipset: string | null
   startedAt: number | null
   lastError: string | null
-  /** Model currently believed to be resident (last successfully used); GenieX exposes no API for this. */
+  /**
+   * Model currently believed to be resident (last successfully used). GenieX < 0.9.3 exposes no API for this,
+   * so it is Studio bookkeeping; from 0.9.3 `GET /status` corrects it (see `server`).
+   */
   residentModel: string | null
   residentSince: number | null
+  /** What `GET /status` (GenieX ≥ 0.9.3) last reported. `supported` is null until the endpoint has been probed. */
+  server: GenieLiveServerStatus
   /** True while a /v1 request is in flight (GenieX serialises all requests behind one mutex). */
   busy: boolean
   queueDepth: number
   settings: GenieServeSettings
-  /** Last unexpected process exit. `kind` says whether a model load did it or a context overflow on the NPU. */
+  /**
+   * Last unexpected process exit or refused model load. `kind` says whether a model load crashed the process, a
+   * context overflow on the NPU did, or the server answered a load with an SDK error (`load_failure`).
+   */
   lastCrash: { at: number; code: string; model: string | null; kind: CrashKind } | null
-  /** Models whose load has crashed the server on this machine (this CLI version) → UI warns, auto-pick avoids them. */
-  crashedModels: Record<string, { count: number; lastAt: number; code: string; cliVersion?: string | null }>
+  /**
+   * Models that cannot run on this machine under this CLI version — their load crashed the server or was refused
+   * with "Model loading failed" → UI warns, auto-pick avoids them.
+   */
+  crashedModels: Record<string, { count: number; lastAt: number; code: string; cliVersion?: string | null; kind?: 'crash' | 'load_failure' }>
   /**
    * A QAIRT bundle has been loaded in this `serve` process. llama.cpp cannot open its Hexagon session after that
    * (GenieX v0.6.1: `HTP0 failed to open session : error 0x80000406`), so the next GGUF request restarts the server.
@@ -58,9 +69,45 @@ export interface GenieServerStatus {
 /**
  * 'model' — the process died while loading/running a model (recorded against it);
  * 'context_overflow' — llama.cpp on the NPU tried a context shift and aborted (a GenieX bug, not the model's fault);
+ * 'load_failure' — the server stayed up but refused the load with HTTP 500 `-100201 SDKError(Model loading failed)`
+ *   (GenieX 0.9.x: AI Hub bundles compiled for QAIRT 2.45 cannot be opened by the bundled 2.50 runtime);
  * 'unknown' — nothing was in flight.
  */
-export type CrashKind = 'model' | 'context_overflow' | 'unknown'
+export type CrashKind = 'model' | 'context_overflow' | 'load_failure' | 'unknown'
+
+/** One entry of `GET /status` → `models[]` (GenieX ≥ 0.9.3), timestamps normalised to epoch ms. */
+export interface GenieLiveModel {
+  id: string
+  type: string | null
+  runtime: string | null
+  /** e.g. `HTP0`, `CPU`. */
+  device: string | null
+  state: 'loading' | 'active' | 'idle' | string
+  loadedAt: number | null
+  lastActivity: number | null
+  idleSeconds: number | null
+}
+
+export interface GenieLiveServerStatus {
+  /** true = `GET /status` answered; false = 404 (older CLI); null = not probed yet for this server start. */
+  supported: boolean | null
+  checkedAt: number | null
+  /** Empty when nothing is loaded or after keep-alive eviction. */
+  models: GenieLiveModel[]
+}
+
+/**
+ * `timings` as GenieX ≥ 0.7.1 attaches it to blocking responses and the final `include_usage` chunk.
+ * Server-measured, so exact; Studio keeps wall-clock numbers only as a fallback.
+ */
+export interface GenieTimings {
+  promptTokens: number | null
+  promptMs: number | null
+  prefillTokensPerSecond: number | null
+  predictedTokens: number | null
+  predictedMs: number | null
+  decodeTokensPerSecond: number | null
+}
 
 export interface GenieServeSettings {
   host: string
@@ -203,10 +250,15 @@ export type ChatStreamEvent =
   | {
       type: 'done'
       finish_reason: 'stop' | 'length' | 'tool_calls' | 'error' | 'cancelled' | string
+      /** Wall-clock time to the first streamed token (the server reports none). */
       ttftMs: number | null
       totalMs: number
       completionTokens: number | null
+      /** Decode speed: the server's `predicted_per_second` when `timings` was present, else wall-clock. */
       tokensPerSecond: number | null
+      /** Prefill speed from the server's `prompt_per_second`; null on CLIs without `timings` (< 0.7.1). */
+      prefillTokensPerSecond: number | null
+      timingsSource: 'server' | 'wall-clock' | null
     }
   | { type: 'error'; message: string; code?: number | string; status?: number }
 

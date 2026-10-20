@@ -40,9 +40,14 @@ export interface Conversation {
 export type MessageStatus = 'streaming' | 'complete' | 'error' | 'cancelled'
 
 export interface MessageMetrics {
+  /** Wall-clock time to first token. */
   ttftMs?: number | null
   totalMs?: number | null
+  /** Decode tok/s — the server's `timings.predicted_per_second` when available, else wall-clock. */
   tokensPerSecond?: number | null
+  /** Prefill tok/s from the server's `timings.prompt_per_second` (GenieX ≥ 0.7.1); absent otherwise. */
+  prefillTokensPerSecond?: number | null
+  timingsSource?: 'server' | 'wall-clock' | null
   loadMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null

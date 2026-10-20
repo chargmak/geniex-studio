@@ -220,7 +220,12 @@ export function ChatView(): React.JSX.Element {
       {(storeError || (genie?.lastCrash && Date.now() - genie.lastCrash.at < 60_000)) && (
         <div className="mx-auto mt-3 flex w-full max-w-[var(--q-prose-max)] items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning hairline-subtle">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          <span className="break-words">{storeError ?? `GenieX runtime restarted after a crash (exit ${genie!.lastCrash!.code}${genie!.lastCrash!.model ? ` while loading ${genie!.lastCrash!.model}` : ''}).`}</span>
+          <span className="break-words">
+            {storeError ??
+              (genie!.lastCrash!.kind === 'load_failure'
+                ? `GenieX refused to load ${genie!.lastCrash!.model ?? 'the model'} ("Model loading failed"). It is remembered as unusable under this CLI version and will not be auto-selected; pick a GGUF model or see the System page.`
+                : `GenieX runtime restarted after a crash (exit ${genie!.lastCrash!.code}${genie!.lastCrash!.model ? ` while loading ${genie!.lastCrash!.model}` : ''}).`)}
+          </span>
         </div>
       )}
       {messages.length === 0 && !busy ? (

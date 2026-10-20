@@ -6,10 +6,10 @@ A local-first desktop studio for **Qualcomm GenieX** on Snapdragon — chat, vis
 
 ## What it does
 
-- **Chat** — streaming replies with a collapsible *thought process* (Qwen3 thinking), Markdown/GFM, syntax-highlighted code, Mermaid, live HTML/SVG artifact preview, image attachments for Vision models, edit-and-resend, regenerate, per-chat model + sampler + compute settings, `/`-commands, context meter with tok/s and TTFT.
+- **Chat** — streaming replies with a collapsible *thought process* (Qwen3 thinking), Markdown/GFM, syntax-highlighted code, Mermaid, live HTML/SVG artifact preview, image attachments for Vision models, edit-and-resend, regenerate, per-chat model + sampler + compute settings, `/`-commands, context meter with decode and prefill tok/s (server `timings`) and wall-clock TTFT.
 - **Agent mode** — a tool loop on GenieX's OpenAI-style tool calling: `read_file · list_dir · search_files · write_file · edit_file` (sandboxed to a workspace, rollback snapshots), `run_command` (PowerShell), `web_search · web_fetch`, `analyze_image` (Vision model), and any **MCP** server's tools. Every risky call stops for **Allow / Always allow / Deny**; runs are persisted with a timeline.
 - **Models** — installed table, Qualcomm AI Hub catalogue for your chipset, Hugging Face GGUF pulls with quantisation discovery (Q4_0 = NPU), Docker Hub and local imports, live download progress, default chat/agent/vision picks.
-- **System** — supervises `geniex serve` (auto-start, restart, crash attribution), resident model, memory/CPU/GPU tiles, per-model tok/s, Qualcomm's **geniex-bench** (downloaded on demand; median ± stdev TTFT / prefill / decode per model, compute unit and speculation mode) plus a quick in-chat benchmark, live server log.
+- **System** — supervises `geniex serve` (auto-start, restart, crash attribution), resident model (live from `GET /status` on GenieX ≥ 0.9.3: device, state, idle time), memory/CPU/GPU tiles, per-model tok/s, Qualcomm's **geniex-bench** (downloaded on demand; median ± stdev TTFT / prefill / decode per model, compute unit and speculation mode) plus a quick in-chat benchmark, live server log.
 - **Settings** — server flags (host, keepalive, context, compute, log level), model defaults, workspace, theme, close-to-tray; onboarding checklist; **Ctrl+K** command palette; system tray.
 - **Studio (NPU media sidecar, optional)** — Stable Diffusion 1.5 / 2.1 text-to-image (≈5–7 s per 512² image on the NPU) with a gallery, **dictation** (Whisper on the NPU — mic button in the composer) and **read-aloud** (Piper TTS on the NPU) for any reply. One click installs a private Python 3.12 arm64 environment; models download on demand from Qualcomm AI Hub.
 - **Knowledge (local RAG)** — index folders of notes/docs/code; chunks are embedded with nomic-embed-text on the NPU and the best excerpts are injected into chat/agent prompts with numbered `[n]` citations shown under the answer.
@@ -33,7 +33,7 @@ Other scripts:
 npm run build        # production bundle → out/
 npm start            # electron-vite preview of the production bundle
 npm run serve        # headless: Studio API (+ built UI) without Electron → open http://127.0.0.1:18190
-npm test             # Vitest (parsers, prompt budgeting, tool-arg repair, sandbox, knowledge chunking)
+npm test             # Vitest (parsers, /status + timings parsing, load-failure mapping, prompt budgeting, tool-arg repair, sandbox, knowledge chunking)
 npm run typecheck    # tsc for main + renderer
 npm run package      # NSIS installer for arm64 → release/
 npm run release      # same, then upload to a draft GitHub release (see docs/RELEASING.md)
@@ -87,34 +87,40 @@ sidecar/ (Python · FastAPI on 127.0.0.1:18195, spawned by the app · QAI AppBui
 └─ registry.py         model catalogue (public AI Hub S3 assets + HF tokenizer files), resumable downloads, NDJSON progress
 ```
 
-- The renderer never talks to GenieX directly; the Studio server proxies `/v1/chat/completions` so it can keep requests inside the context window, restart the runtime when the model family changes, sniff SSE bodies, measure TTFT/tok/s, translate runtime crashes, and serialise requests (GenieX holds one global mutex and keeps one model resident).
+- The renderer never talks to GenieX directly; the Studio server proxies `/v1/chat/completions` so it can keep requests inside the context window, restart the runtime when the model family changes, sniff SSE bodies, measure TTFT and read the server's `timings` (wall-clock tok/s only as a fallback), translate runtime crashes and refused loads, and serialise requests (GenieX holds one global mutex and keeps one model resident).
 - Prompt assembly budgets history against the model's context (QAIRT ≈4 k baked, GGUF = `--nctx`) with a per-conversation token factor calibrated from the server's own `prompt_tokens`, trims in blocks so later turns stay KV-cache continuations, keeps images on every message for llama.cpp vision models (the model can refer back to an earlier picture), and never sends images to text-only models.
 - Design: Qualcomm `--q-*` tokens (`src/renderer/src/styles/tokens.css`), dark-first with a light remap, Roboto Flex/Mono bundled, 0.8 px hairlines, `.161s` motion. React Bits Pro App-UI blocks (`ai-chat`, `prompt-input`, `tool-calls`) are installed under `components/blocks/` as pattern references; the neutral ramp is remapped so blocks land on Qualcomm tokens.
 
 ## GenieX v0.6 behaviours the app is built around
 
-Source-verified (docs, `qualcomm/GenieX` source, releases) and measured on this machine — see `docs/research/phase0-v061/` and `docs/geniex-v0.6-adoption-plan.md`:
+Source-verified (docs, `qualcomm/GenieX` source, releases) and measured on this machine — see `docs/research/phase0-v061/`, `docs/geniex-v0.6-adoption-plan.md` and, for the 0.9.3 re-check, `docs/geniex-v0.9-adoption-plan.md`. Studio requires **GenieX ≥ 0.6.0**; the newer server surface (0.7.1 `timings`, 0.9.3 `GET /status`) is used when present and probed, never required:
 
 | Behaviour | Studio response |
 |---|---|
 | Server has no model-management endpoints | shells out to `geniex list --format json`, `pull` (AI Hub, Hugging Face, ModelScope, Docker, local), `remove`, `model list/set-type` |
 | One model resident; all `/v1` requests serialised | serialised client gate, warm-up load with `messages: []`, "loading model" state, resident/busy status |
+| **`GET /status`** (0.9.3) reports the loaded model with `device`, `state` and `idle_seconds`; empty after keep-alive eviction | probed once per server start (404 → Studio's own bookkeeping); drives the System page and the chat status strip, and an eviction clears the client's resident key so the next turn says "loading model" instead of looking like a slow TTFT |
+| **`timings`** (0.7.1) on blocking responses and the final `include_usage` chunk | decode tok/s and the new **prefill tok/s** come from the server (`predicted_per_second`, `prompt_per_second`); TTFT stays wall-clock (the server has none) and wall-clock tok/s is only the fallback for older CLIs |
+| **AI Hub QAIRT bundles are refused on 0.9.x** — HTTP 500 `{"code":-100201,"error":"SDKError(Model loading failed)"}`, or the server wedges in `state: loading` for minutes and every request hangs behind it (bundles are compiled for QAIRT 2.45, the CLI ships 2.50) | the error is mapped to a plain explanation (driver update / wait for a fix / use GGUF Q4_0), recorded against the model like a crash (CLI-version-stamped, pruned on CLI change), `geniex serve` is restarted, the load is never retried automatically, every `qualcomm/*` model is left out of auto-selection, and the AI Hub tab / picker / System page are annotated. A warm-up that passes 180 s is treated the same way for AI Hub bundles (restart only, no record, for GGUF) |
 | KV cache is reused only when a request *continues* the previous one (the old `GenieX-KeepCache` header is gone) | history is trimmed in blocks (down to 60 % of the budget) so the next turns keep the cache; `usage.prompt_tokens` counts only the newly prefilled tokens |
 | Tool calls stream, several per turn; `role: tool` results reach the template | the agent announces every call of a turn, raises all approvals at once (*Allow all*), then runs them in order |
-| **GGUF on the NPU aborts the whole server on any context overflow** (llama.cpp context shift → `cannot run the operation (ROPE)`) | a calibrated token estimate, `max_tokens` clamped to what is left of the window, and a 413 refusal when one message cannot fit; the crash signature is classified as *context overflow* and never blacklists the model |
-| **QAIRT → GGUF inside one `serve` process fails** (`HTP0 failed to open session : error 0x80000406`) | Studio restarts `geniex serve` automatically before the GGUF request (`runtime-restart` event in the chat) |
-| QAIRT Qwen3 bundles ignore `enable_think:false` | thinking is requested and routed to `reasoning_content`, which is hidden when the user turned thinking off |
+| **GGUF on the NPU aborts the whole server on any context overflow** (llama.cpp context shift → `cannot run the operation (ROPE)`) — **unchanged on 0.9.3** | a calibrated token estimate, `max_tokens` clamped to what is left of the window, and a 413 refusal when one message cannot fit; the crash signature is classified as *context overflow* and never blacklists the model |
+| **QAIRT → GGUF inside one `serve` process fails** (`HTP0 failed to open session : error 0x80000406`; measured on 0.6.1, cannot be re-checked while QAIRT bundles do not load) | Studio restarts `geniex serve` automatically before the GGUF request (`runtime-restart` event in the chat) |
+| QAIRT Qwen3 bundles ignore `enable_think:false` (0.6.1; kept until QAIRT loads again) | thinking is requested and routed to `reasoning_content`, which is hidden when the user turned thinking off |
 | Overflow on QAIRT → 400 `context_length_exceeded` (SSE: SDK code −200103) | mapped to one message and a harder estimate pad for the rest of the conversation |
 | Speculative decoding without a draft model (`ngram-*`) | composer *Speed* menu / `/spec`; acceptance shown as `spec NN%` on the reply |
 | Omits `Content-Type` on SSE when `reasoning_format:'auto'` + thinking | body sniffing instead of header trust |
 | Mid-stream errors end without `[DONE]` | tolerant SSE parser, error frames surfaced |
 | No embeddings / image / audio / video generation | the optional **NPU sidecar** covers images (SD 1.5/2.1), STT (Whisper), TTS (Piper) and embeddings (nomic) on the NPU; video stays out of scope |
 
-### Runtime findings on this machine (X1E80100, NPU driver 30.0.220.3000, GenieX v0.6.1)
+### Runtime findings on this machine (X1E80100, NPU driver 30.0.220.3000)
 
-- **AI Hub QAIRT bundles (`qualcomm/*`) run** — the v0.4 crash (GenieX issue [#1154](https://github.com/qualcomm/GenieX/issues/1154)) is gone with the same driver: Qwen3-0.6B W4A16 loads in ~6.5 s and decodes at ~80 tok/s with 30 ms TTFT (geniex-bench), and makes correct tool calls. Crash history in `runtime-crashes.json` is stamped with the CLI version and forgotten when the CLI changes; a model that does crash is still avoided by auto-selection (`pickAutoModel`) and marked in the picker.
-- **GGUF Q4_0 on `compute: npu`**: Qwen3-0.6B ≈60 tok/s decode / 120 ms TTFT (bench); Qwen3-4B ≈10–16 tok/s depending on free RAM. `hybrid` loads slower (~20 s) and did not crash this time; `npu` stays the default.
-- **Gemma-4-E2B QAT Q4_0 (GGUF vision + audio)** loads in ~6.5 s; every 512² image costs ~7 s to encode on cpu, hybrid and npu alike; earlier images stay usable across the conversation. Its audio transcription was poor, so dictation stays on the sidecar's Whisper.
+Measured 2026-10-20 on **GenieX v0.9.3** (QAIRT 2.50, llama.cpp `e467e5b`); the v0.6.1 numbers are kept for comparison. Details and log excerpts: `docs/geniex-v0.9-adoption-plan.md` §1.
+
+- **AI Hub QAIRT bundles (`qualcomm/*`) fail to load on v0.9.3** — every bundle, cached or freshly pulled, answers HTTP 500 `-100201 SDKError(Model loading failed)` after ~13 s (`Failed to create context from binary with err 0x3ef` / `err 1007` in the log), or sometimes never answers: `GET /status` stays at `state: loading` for minutes (`openSessionForPriority failed … 0x200`) while every other request hangs, which is why Studio puts a deadline on the warm-up. AI Hub still ships them compiled with QAIRT 2.45 (`metadata.json` → `tool_versions.qairt`), the CLI now bundles 2.50, and pointing `--qairt-lib` at 2.45/2.48 libraries fails too. Under v0.6.1 the same bundles ran (Qwen3-0.6B W4A16: 6.5 s load, ~80 tok/s). Studio records the refusal like a crash and steers away from the whole catalogue until the CLI changes; the likely fix is a newer Qualcomm NPU driver (the GenieX install docs now require one) or an upstream GenieX/AI Hub change.
+- **GGUF Q4_0 on `compute: npu` is fine and slightly faster**: Qwen3-0.6B 503 tok/s prefill / 68 tok/s decode (`/status`: `device: HTP0`); Qwen3-4B ≈10–16 tok/s depending on free RAM. `npu` stays the default. One quirk: a request fully served from the KV cache (an identical prompt repeated) streams `usage` and `timings` as all zeros, so Studio treats zero rates as "not measured" and falls back to wall-clock speed.
+- **Gemma-4-E2B QAT Q4_0 (GGUF vision + audio)**: image question in 12.8 s including load, 318 tok/s prefill / 25 tok/s decode; the new "mmproj on its own HTP session" default falls back to HTP0 on the single-HTP X Elite without harm. Its audio transcription was poor on v0.6.1, so dictation stays on the sidecar's Whisper.
+- **Context overflow on the NPU still kills `geniex serve`** (exit 3, same `cannot run the operation (ROPE)` / `fatal: backend aborted` signature), so the token-estimate guard, `max_tokens` clamp and 413 refusal stay in place, and the exit is still classified as *context overflow* rather than blamed on the model.
 - No Windows performance counter set exists for the NPU on this machine, so the System page reports it honestly and leans on measured tok/s.
 
 ## Phase 2 — NPU media sidecar

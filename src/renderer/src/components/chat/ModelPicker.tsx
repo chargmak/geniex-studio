@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { AlertTriangle, Check, ChevronDown, Cpu, Eye, Search } from 'lucide-react'
 import type { CachedModel } from '@shared/api'
-import { crashRecordFor } from '@shared/modelSelect'
+import { crashRecordFor, hasQairtLoadFailure } from '@shared/modelSelect'
 import { cn, formatBytes } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -29,6 +29,8 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
   const loading = useModelsStore((s) => s.loading)
   const crashed = useServerStore((s) => s.genie?.crashedModels) ?? NO_CRASHES
   const resident = useServerStore((s) => s.genie?.residentModel ?? null)
+  // One refused QAIRT load (GenieX 0.9.x, bundles compiled for QAIRT 2.45) condemns the whole AI Hub catalogue.
+  const qairtBlocked = hasQairtLoadFailure(crashed)
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
 
@@ -58,7 +60,7 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
         >
           {current?.type === 'vlm' ? <Eye className="size-3.5 text-text-secondary" /> : <Cpu className="size-3.5 text-text-secondary" />}
           <span className="truncate">{modelLabel(value)}</span>
-          {value && crashRecordFor(crashed, value, current?.name ?? value.split(':')[0]) && <AlertTriangle className="size-3.5 text-warning" />}
+          {value && (crashRecordFor(crashed, value, current?.name ?? value.split(':')[0]) || (qairtBlocked && current?.runtime === 'qairt')) && <AlertTriangle className="size-3.5 text-warning" />}
           <ChevronDown className="size-3.5 text-text-secondary" />
         </button>
       </PopoverTrigger>
@@ -105,11 +107,21 @@ export function ModelPicker({ value, onChange, compact = false }: { value: strin
                     <Badge variant={model.type === 'vlm' ? 'accent' : 'neutral'}>{model.type === 'vlm' ? 'Vision' : 'Text'}</Badge>
                     {model.npuEligible && model.runtime !== 'qairt' && <Badge variant="npu">NPU-eligible</Badge>}
                     <span className="metadata-sm text-text-disabled">{formatBytes(model.sizeBytes)}</span>
-                    {crash && (
-                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`Crashed the GenieX runtime ${crash.count}× (exit ${crash.code}) under CLI ${crash.cliVersion ?? '?'}. Forgotten automatically when the CLI is updated.`}>
-                        <AlertTriangle className="size-3" /> crashed {crash.count}×
+                    {crash ? (
+                      crash.kind === 'load_failure' ? (
+                        <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`GenieX refused to load this model ${crash.count}× ("Model loading failed", SDK ${crash.code}) under CLI ${crash.cliVersion ?? '?'}: AI Hub bundles are compiled for QAIRT 2.45 and this GenieX ships a newer runtime. Forgotten automatically when the CLI is updated.`}>
+                          <AlertTriangle className="size-3" /> won't load
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`Crashed the GenieX runtime ${crash.count}× (exit ${crash.code}) under CLI ${crash.cliVersion ?? '?'}. Forgotten automatically when the CLI is updated.`}>
+                          <AlertTriangle className="size-3" /> crashed {crash.count}×
+                        </span>
+                      )
+                    ) : qairtBlocked && model.runtime === 'qairt' ? (
+                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title="Another AI Hub bundle was refused by this GenieX (QAIRT 2.45 bundles vs the 2.50 runtime); this one is expected to fail the same way and is not auto-selected.">
+                        <AlertTriangle className="size-3" /> QAIRT not loading
                       </span>
-                    )}
+                    ) : null}
                   </span>
                 </span>
               </button>

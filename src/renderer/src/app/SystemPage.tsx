@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useServerStore } from '@/stores/serverStore'
 import { useModelsStore } from '@/stores/modelsStore'
+import { hasQairtLoadFailure } from '@shared/modelSelect'
 
 interface SystemStats {
   ts: number
@@ -30,6 +31,8 @@ interface TelemetryRow {
   prompt_tokens: number | null
   completion_tokens: number | null
   tokens_per_second: number | null
+  /** Server-measured prefill speed (GenieX ≥ 0.7.1); null on older CLIs and on rows written before Studio 0.4. */
+  prefill_tokens_per_second: number | null
   load_ms: number | null
   finish_reason: string | null
 }
@@ -39,6 +42,7 @@ interface ByModel {
   compute: string | null
   n: number
   avg_tps: number | null
+  avg_prefill_tps: number | null
   avg_ttft: number | null
   last_ts: number
 }
@@ -196,6 +200,9 @@ export function SystemPage(): React.JSX.Element {
   const tpsSeries = useMemo(() => (tele?.recent ?? []).slice(0, 40).reverse().map((r) => r.tokens_per_second ?? 0), [tele])
   const state = genie?.state ?? 'unknown'
   const uptime = genie?.startedAt ? Date.now() - genie.startedAt : null
+  // GET /status (GenieX ≥ 0.9.3): the server's own account of what is loaded; null on older CLIs.
+  const liveModel = genie?.server.supported ? (genie.server.models[0] ?? null) : null
+  const qairtBlocked = hasQairtLoadFailure(genie?.crashedModels)
 
   const runBench = async (): Promise<void> => {
     const model = bench.model || installed[0]?.requestIds[0]
@@ -241,9 +248,25 @@ export function SystemPage(): React.JSX.Element {
             {genie?.residentModel && (
               <div className="mt-1 text-xs text-text-secondary">
                 Resident model: <span className="font-mono text-text-primary">{genie.residentModel}</span>
-                {genie.residentSince && <span> · since {formatDuration(Date.now() - genie.residentSince)} ago</span>}
-                <span> · unloads after {genie.settings.keepaliveSeconds}s idle</span>
+                {liveModel ? (
+                  <>
+                    {liveModel.device && <span> · {liveModel.device}</span>}
+                    <span> · {liveModel.state}</span>
+                    {liveModel.state === 'idle' && liveModel.idleSeconds != null && <span> for {formatDuration(liveModel.idleSeconds * 1000)}</span>}
+                    {liveModel.loadedAt && <span> · loaded {formatDuration(Date.now() - liveModel.loadedAt)} ago</span>}
+                    <span> · unloads after {genie.settings.keepaliveSeconds}s idle</span>
+                  </>
+                ) : (
+                  <>
+                    {genie.residentSince && <span> · since {formatDuration(Date.now() - genie.residentSince)} ago</span>}
+                    <span> · unloads after {genie.settings.keepaliveSeconds}s idle</span>
+                  </>
+                )}
               </div>
+            )}
+            {!genie?.residentModel && state === 'running' && genie?.server.supported && <div className="mt-1 text-xs text-text-secondary">No model loaded (the server reports an empty model list; the next chat message loads one).</div>}
+            {state === 'running' && genie?.server.supported !== null && (
+              <div className="mt-1 text-xs text-text-disabled">{genie?.server.supported ? 'Live model status from GET /status.' : 'This GenieX has no GET /status (added in 0.9.3): the resident model is inferred from Studio requests.'}</div>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -272,15 +295,21 @@ export function SystemPage(): React.JSX.Element {
         {genie && Object.keys(genie.crashedModels).length > 0 && (
           <div className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
             <div className="flex items-center gap-1.5 font-medium">
-              <AlertTriangle className="size-3.5" /> Models that crashed the runtime on this device
+              <AlertTriangle className="size-3.5" /> Models that cannot run on this device under GenieX {genie.cliVersion ?? '?'}
             </div>
             <ul className="mt-1 list-disc pl-5">
               {Object.entries(genie.crashedModels).map(([name, c]) => (
                 <li key={name}>
-                  <span className="font-mono">{name}</span> — {c.count}× (exit {c.code}) under GenieX {c.cliVersion ?? '?'}.
+                  <span className="font-mono">{name}</span> —{' '}
+                  {c.kind === 'load_failure' ? `load refused ${c.count}× ("Model loading failed", SDK ${c.code})` : `crashed the runtime ${c.count}× (exit ${c.code})`} under GenieX {c.cliVersion ?? '?'}.
                 </li>
               ))}
             </ul>
+            {qairtBlocked && (
+              <p className="mt-2 text-text-secondary">
+                An AI Hub QAIRT bundle failed to load: those bundles are compiled for QAIRT 2.45 and GenieX {genie.cliVersion ?? '0.9.x'} ships QAIRT {genie.qairtVersion ?? '2.50'}, which cannot open them on this NPU driver. Every <span className="font-mono">qualcomm/*</span> model is therefore left out of auto-selection and the AI Hub tab is marked. Update the Qualcomm NPU driver (Qualcomm Software Center → Qualcomm_HND) and clear the history below, or stay on GGUF Q4_0 models, which run on the NPU normally.
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-text-secondary">Remembered across restarts — new chats never auto-select these. You can still pick one by hand. Forgotten automatically when the GenieX CLI is updated.</span>
               <ClearCrashesButton onCleared={refresh} />
@@ -294,7 +323,7 @@ export function SystemPage(): React.JSX.Element {
         <StatTile icon={Zap} label="Hexagon NPU" value={stats?.npuPercent != null ? formatNumber(stats.npuPercent, 0) : '—'} unit={stats?.npuPercent != null ? '%' : undefined} series={npuSeries} sub={stats?.npuCounterName ? 'Windows NPU Engine counter' : 'No NPU utilisation counter exposed by this driver — watch tok/s instead'} />
         <StatTile icon={Cpu} label="CPU" value={stats?.cpuPercent != null ? formatNumber(stats.cpuPercent, 0) : '—'} unit="%" series={cpuSeries} sub={stats ? `${stats.cores} cores` : undefined} />
         <StatTile icon={HardDrive} label="Memory" value={stats ? formatBytes(stats.memUsedBytes, 1) : '—'} sub={stats ? `of ${formatBytes(stats.memTotalBytes, 0)} · geniex ${stats.geniex ? formatBytes(stats.geniex.workingSetBytes, 1) : '—'}` : undefined} />
-        <StatTile icon={Gauge} label="Last decode speed" value={tele?.recent?.[0]?.tokens_per_second != null ? formatNumber(tele.recent[0].tokens_per_second, 1) : '—'} unit="tok/s" series={tpsSeries.length > 1 ? tpsSeries.map((v) => (v / Math.max(1, ...tpsSeries)) * 100) : undefined} sub={tele?.recent?.[0]?.model ? `${tele.recent[0].model.split('/').pop()} · TTFT ${formatDuration(tele.recent[0].ttft_ms)}` : 'Send a message to record telemetry'} />
+        <StatTile icon={Gauge} label="Last decode speed" value={tele?.recent?.[0]?.tokens_per_second != null ? formatNumber(tele.recent[0].tokens_per_second, 1) : '—'} unit="tok/s" series={tpsSeries.length > 1 ? tpsSeries.map((v) => (v / Math.max(1, ...tpsSeries)) * 100) : undefined} sub={tele?.recent?.[0]?.model ? `${tele.recent[0].model.split('/').pop()} · TTFT ${formatDuration(tele.recent[0].ttft_ms)}${tele.recent[0].prefill_tokens_per_second != null ? ` · prefill ${formatNumber(tele.recent[0].prefill_tokens_per_second, 0)} tok/s` : ''}` : 'Send a message to record telemetry'} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -314,7 +343,10 @@ export function SystemPage(): React.JSX.Element {
                   </td>
                   <td className="py-1.5 text-right tabular-nums">
                     <div className="text-text-primary">{formatNumber(r.avg_tps ?? 0, 1)} tok/s</div>
-                    <div className="text-xs text-text-secondary">TTFT {formatDuration(r.avg_ttft)}</div>
+                    <div className="text-xs text-text-secondary">
+                      TTFT {formatDuration(r.avg_ttft)}
+                      {r.avg_prefill_tps != null && <span title="Average prefill speed reported by the GenieX server"> · prefill {formatNumber(r.avg_prefill_tps, 0)} tok/s</span>}
+                    </div>
                   </td>
                 </tr>
               ))}

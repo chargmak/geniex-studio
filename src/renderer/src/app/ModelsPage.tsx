@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, Check, Download, Eye, Loader2, RefreshCw, Search, Star, Trash2, X } from 'lucide-react'
 import type { CachedModel, CatalogueModel, PullJob } from '@shared/api'
 import type { StudioSettings } from '@shared/settings'
+import { hasQairtLoadFailure } from '@shared/modelSelect'
 import { api } from '@/lib/api'
 import { cn, formatBytes, formatDuration } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +27,8 @@ export function ModelsPage(): React.JSX.Element {
   const refresh = useModelsStore((s) => s.refresh)
   const subscribePulls = useModelsStore((s) => s.subscribePulls)
   const pulls = useModelsStore((s) => s.pulls)
+  // A refused QAIRT load under this CLI (GenieX 0.9.x vs QAIRT-2.45 bundles) marks the whole AI Hub tab.
+  const qairtBlocked = useServerStore((s) => hasQairtLoadFailure(s.genie?.crashedModels))
   useEffect(() => {
     void refresh()
     return subscribePulls()
@@ -37,8 +40,9 @@ export function ModelsPage(): React.JSX.Element {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-11 shrink-0 items-center gap-1 px-4 hairline-b">
           {(['installed', 'catalogue', 'add'] as Tab[]).map((t) => (
-            <button key={t} type="button" onClick={() => setTab(t)} className={cn('h-8 rounded-sm px-3 text-[13px] font-medium', tab === t ? 'bg-accent-soft text-accent-brand' : 'text-text-secondary hover:bg-surface-3 hover:text-text-primary')}>
+            <button key={t} type="button" onClick={() => setTab(t)} className={cn('inline-flex h-8 items-center gap-1.5 rounded-sm px-3 text-[13px] font-medium', tab === t ? 'bg-accent-soft text-accent-brand' : 'text-text-secondary hover:bg-surface-3 hover:text-text-primary')} title={t === 'catalogue' && qairtBlocked ? 'AI Hub QAIRT bundles are not loading with this GenieX on this device' : undefined}>
               {t === 'installed' ? 'Installed' : t === 'catalogue' ? 'Qualcomm AI Hub' : 'Add model'}
+              {t === 'catalogue' && qairtBlocked && <AlertTriangle className="size-3.5 text-warning" />}
             </button>
           ))}
           {activePulls.length > 0 && (
@@ -81,6 +85,7 @@ function InstalledTab({ onAdd }: { onAdd: () => void }): React.JSX.Element {
   }
   const crashed = genie?.crashedModels ?? {}
   const crashedCount = Object.keys(crashed).length
+  const qairtBlocked = hasQairtLoadFailure(crashed)
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
@@ -88,7 +93,8 @@ function InstalledTab({ onAdd }: { onAdd: () => void }): React.JSX.Element {
         <div className="flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning hairline-subtle">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            {crashedCount} model{crashedCount === 1 ? '' : 's'} crashed the GenieX runtime on this device under CLI {genie?.cliVersion ?? '?'}. New chats will not auto-select them; you can still pick them by hand. The history is forgotten when the CLI is updated (System page to clear it sooner).
+            {crashedCount} model{crashedCount === 1 ? '' : 's'} cannot run on this device under GenieX {genie?.cliVersion ?? '?'} (crashed the runtime or were refused with “Model loading failed”). New chats will not auto-select them; you can still pick them by hand. The history is forgotten when the CLI is updated (System page to clear it sooner).
+            {qairtBlocked && <> AI Hub QAIRT bundles are compiled for QAIRT 2.45 and this GenieX ships QAIRT {genie?.qairtVersion ?? '2.50'}, so every <span className="font-mono">qualcomm/*</span> model is expected to fail until the NPU driver or GenieX is updated — GGUF Q4_0 models run on the NPU normally.</>}
           </span>
         </div>
       )}
@@ -142,11 +148,21 @@ function InstalledTab({ onAdd }: { onAdd: () => void }): React.JSX.Element {
                   ))}
                   {m.npuEligible && m.runtime !== 'qairt' && <Badge variant="npu">NPU-eligible</Badge>}
                   <span className="metadata-sm text-text-disabled">{formatBytes(m.sizeBytes)}</span>
-                  {crash && (
-                    <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`exit ${crash.code}`}>
-                      <AlertTriangle className="size-3" /> crashed runtime {crash.count}×
+                  {crash ? (
+                    crash.kind === 'load_failure' ? (
+                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`GenieX refused to load this model ${crash.count}× ("Model loading failed", SDK ${crash.code}) under CLI ${crash.cliVersion ?? '?'}`}>
+                        <AlertTriangle className="size-3" /> won't load on this GenieX
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={`exit ${crash.code}`}>
+                        <AlertTriangle className="size-3" /> crashed runtime {crash.count}×
+                      </span>
+                    )
+                  ) : qairtBlocked && m.runtime === 'qairt' ? (
+                    <span className="inline-flex items-center gap-1 metadata-sm text-warning" title="Another AI Hub bundle was refused by this GenieX (QAIRT 2.45 bundles vs the newer runtime); this one is expected to fail the same way and is not auto-selected.">
+                      <AlertTriangle className="size-3" /> QAIRT not loading
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <DefaultChip label="Chat" active={!!isChat} onClick={() => void setDefault('chatModel', m.requestIds[0])} />
@@ -206,9 +222,20 @@ function CatalogueTab(): React.JSX.Element {
   }, [catalogue.length, load])
   const rows = useMemo(() => catalogue.filter((m) => !q || m.name.toLowerCase().includes(q.toLowerCase())), [catalogue, q])
   const pulling = (name: string): PullJob | undefined => pulls.find((p) => p.name === name && (p.state === 'running' || p.state === 'queued'))
+  const crashed = genie?.crashedModels ?? {}
+  const qairtBlocked = hasQairtLoadFailure(crashed)
+  const failedHere = Object.entries(crashed).filter(([, c]) => c.kind === 'load_failure').map(([name]) => name)
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 p-4">
+      {qairtBlocked && (
+        <div className="flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning hairline-subtle">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            <strong>These bundles are not loading on this device with GenieX {genie?.cliVersion ?? '0.9.x'}.</strong> {failedHere.length ? <>{failedHere.map((n) => n.replace(/^qualcomm\//, '')).join(', ')} failed with “Model loading failed” (SDK −100201).</> : null} AI Hub ships them compiled for QAIRT 2.45 while this GenieX bundles QAIRT {genie?.qairtVersion ?? '2.50'}, which cannot open them on the current NPU driver. Pulling another one is expected to fail the same way. Update the Qualcomm NPU driver (Qualcomm Software Center → Qualcomm_HND) or wait for a GenieX/AI Hub fix; meanwhile the GGUF Q4_0 models under <em>Add model</em> run on the NPU normally.
+          </span>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <div className="flex h-8 flex-1 items-center gap-2 rounded-sm bg-surface-2 px-2 hairline-subtle">
           <Search className="size-3.5 text-text-secondary" />
@@ -219,7 +246,7 @@ function CatalogueTab(): React.JSX.Element {
         </Button>
       </div>
       <p className="text-xs text-text-secondary">
-        Pre-compiled QAIRT bundles for <strong>{genie?.chipset ?? 'this device'}</strong>: run entirely on the Hexagon NPU (fastest decode), fixed ~4k context, no compute options. Switching from one of these to a GGUF model restarts the server (a GenieX limitation).
+        Pre-compiled QAIRT bundles for <strong>{genie?.chipset ?? 'this device'}</strong>: run entirely on the Hexagon NPU (fastest decode when they load), fixed ~4k context, no compute options. Switching from one of these to a GGUF model restarts the server (a GenieX limitation).
       </p>
       {loading && !catalogue.length && <div className="p-6 text-center text-sm text-text-secondary">Loading catalogue from geniex…</div>}
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -232,6 +259,11 @@ function CatalogueTab(): React.JSX.Element {
                 <div className="mt-1 flex items-center gap-1.5">
                   <Badge variant="npu">QAIRT · NPU</Badge>
                   <Badge variant={m.type === 'vlm' ? 'accent' : 'neutral'}>{m.type === 'vlm' ? 'Vision' : 'Text'}</Badge>
+                  {qairtBlocked && (
+                    <span className="inline-flex items-center gap-1 metadata-sm text-warning" title={failedHere.includes(m.name) ? 'This bundle was refused by GenieX on this device ("Model loading failed")' : 'Expected to fail like the other AI Hub bundles on this GenieX (QAIRT 2.45 bundle vs newer runtime)'}>
+                      <AlertTriangle className="size-3" /> {failedHere.includes(m.name) ? "won't load" : 'not loading on this GenieX'}
+                    </span>
+                  )}
                 </div>
               </div>
               {m.installed ? (
@@ -243,8 +275,8 @@ function CatalogueTab(): React.JSX.Element {
                   <Loader2 className="size-3.5 animate-spin" /> {job.progress != null ? `${Math.round(job.progress * 100)}%` : 'Pulling…'}
                 </span>
               ) : (
-                <Button size="sm" variant="secondary" onClick={() => void startPull({ name: m.name, hub: 'aihub', modelType: m.type as 'llm' | 'vlm' })}>
-                  <Download className="size-3.5" /> Pull
+                <Button size="sm" variant="secondary" title={qairtBlocked ? 'Downloads, but is expected to fail to load on this GenieX until the NPU driver or GenieX is updated' : undefined} onClick={() => void startPull({ name: m.name, hub: 'aihub', modelType: m.type as 'llm' | 'vlm' })}>
+                  <Download className="size-3.5" /> {qairtBlocked ? 'Pull anyway' : 'Pull'}
                 </Button>
               )}
             </div>
@@ -258,6 +290,7 @@ function CatalogueTab(): React.JSX.Element {
 function AddTab(): React.JSX.Element {
   const startPull = useModelsStore((s) => s.startPull)
   const installed = useModelsStore((s) => s.installed)
+  const qairtBlocked = useServerStore((s) => hasQairtLoadFailure(s.genie?.crashedModels))
   const [hub, setHub] = useState<'hf' | 'modelscope' | 'docker' | 'localfs'>('hf')
   const [repo, setRepo] = useState('')
   const [quants, setQuants] = useState<{ precision: string; sizeBytes: number | null; npuEligible: boolean }[] | null>(null)
@@ -309,7 +342,10 @@ function AddTab(): React.JSX.Element {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
       <section>
         <h2 className="heading-xs text-text-primary">Recommended for Snapdragon X Elite</h2>
-        <p className="mt-1 body-sm text-text-secondary">GGUF Q4_0 quantisations run on the Hexagon NPU via llama.cpp (compute “npu” or “hybrid”). One click to pull. For the fastest decode, pull a QAIRT bundle from the Qualcomm AI Hub tab instead.</p>
+        <p className="mt-1 body-sm text-text-secondary">
+          GGUF Q4_0 quantisations run on the Hexagon NPU via llama.cpp (compute “npu” or “hybrid”). One click to pull.{' '}
+          {qairtBlocked ? 'Stay with these for now: the QAIRT bundles on the Qualcomm AI Hub tab are not loading with this GenieX on this device.' : 'For the fastest decode, pull a QAIRT bundle from the Qualcomm AI Hub tab instead.'}
+        </p>
         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
           {RECOMMENDED.map((r) => {
             const have = installed.some((m) => m.name === r.name)

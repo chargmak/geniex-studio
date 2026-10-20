@@ -24,6 +24,8 @@ export interface StreamState {
   loadMs: number | null
   ttftMs: number | null
   tokensPerSecond: number | null
+  /** Server-measured prefill speed (GenieX ≥ 0.7.1 `timings`); null when the CLI does not report it. */
+  prefillTokensPerSecond: number | null
   completionTokens: number | null
   error: string | null
   citations: KnowledgeHit[] | null
@@ -74,6 +76,7 @@ const idleStream = (): StreamState => ({
   loadMs: null,
   ttftMs: null,
   tokensPerSecond: null,
+  prefillTokensPerSecond: null,
   completionTokens: null,
   error: null,
   citations: null,
@@ -330,7 +333,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             set((s) => ({
               streams: {
                 ...s.streams,
-                [id]: { ...cur, phase: 'done', ttftMs: ev.ttftMs, tokensPerSecond: ev.tokensPerSecond, completionTokens: ev.completionTokens },
+                [id]: { ...cur, phase: 'done', ttftMs: ev.ttftMs, tokensPerSecond: ev.tokensPerSecond, prefillTokensPerSecond: ev.prefillTokensPerSecond, completionTokens: ev.completionTokens },
               },
             }))
             break

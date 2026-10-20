@@ -8,6 +8,11 @@ export interface CrashRecord {
   code: string
   /** GenieX CLI version the crash happened under; a newer CLI is a new runtime and the record is forgotten. */
   cliVersion?: string | null
+  /**
+   * 'crash' (default) — the process died; 'load_failure' — the server stayed up and refused the load
+   * (HTTP 500 `-100201 SDKError(Model loading failed)`, GenieX 0.9.x with AI Hub bundles compiled for QAIRT 2.45).
+   */
+  kind?: 'crash' | 'load_failure'
 }
 
 export interface AutoPickOptions {
@@ -63,30 +68,50 @@ export function crashRecordFor(crashed: Record<string, CrashRecord> | undefined,
 export const crashCount = (crashed: Record<string, CrashRecord> | undefined, id: string, name: string): number =>
   (crashed?.[id]?.count ?? 0) + (id === name ? 0 : (crashed?.[name]?.count ?? 0))
 
+/** AI Hub naming convention: `qualcomm/*` and `ai-hub-models/*` are QAIRT bundles. */
+export const isAiHubModelId = (id: string): boolean => /^(qualcomm|ai-hub-models)\//i.test(id)
+
+/**
+ * A QAIRT bundle that *failed to load* (as opposed to crashing the process) is not a per-model fact: with
+ * GenieX 0.9.x every AI Hub bundle is compiled for QAIRT 2.45 and the bundled 2.50 runtime refuses them all.
+ * One such record therefore stands for the whole `qualcomm/*` catalogue until the CLI changes.
+ */
+export function hasQairtLoadFailure(crashed: Record<string, CrashRecord> | undefined): boolean {
+  if (!crashed) return false
+  return Object.entries(crashed).some(([name, rec]) => rec.kind === 'load_failure' && isAiHubModelId(name))
+}
+
 /**
  * Choose a model for a turn when the user has not pinned one.
  *
  * The important rule: never *automatically* select a model that is known to crash the runtime on this device.
  * The user can still pick one by hand (the picker warns), but a fresh chat must not walk into a known crash.
  * Crash records are scoped to the GenieX CLI version they happened under (a CLI update forgets them), so a
- * crash is treated as a per-model fact, never as a verdict on a whole runtime.
+ * crash is treated as a per-model fact, never as a verdict on a whole runtime — with one exception: a QAIRT
+ * *load failure* (see `hasQairtLoadFailure`) sidelines every untried QAIRT bundle too, because the cause is the
+ * runtime/bundle version mismatch, not the model.
  *
  * Order of preference: the saved preference (if usable) → healthy models, larger NPU-eligible ones first →
- * otherwise the least-crashed model, so we still return *something* to try.
+ * sidelined QAIRT bundles → otherwise the least-crashed model, so we still return *something* to try.
  */
 export function pickAutoModel(installed: CachedModel[], opts: AutoPickOptions = {}): string | null {
   const list = candidates(installed, opts.type)
   if (!list.length) return null
   const { crashed, preferred } = opts
+  const qairtBlocked = hasQairtLoadFailure(crashed)
+  const sidelined = (c: { model: CachedModel }): boolean => qairtBlocked && c.model.runtime === 'qairt'
 
   if (preferred) {
     const hit = list.find((c) => c.id === preferred || c.model.name === preferred || c.model.name === bareModelName(preferred))
-    if (hit && crashCount(crashed, hit.id, hit.model.name) === 0) return hit.id
+    if (hit && crashCount(crashed, hit.id, hit.model.name) === 0 && !sidelined(hit)) return hit.id
   }
 
-  const scored = list.map((c) => ({ ...c, crashes: crashCount(crashed, c.id, c.model.name) }))
-  const healthy = scored.filter((c) => c.crashes === 0)
+  const scored = list.map((c) => {
+    const crashes = crashCount(crashed, c.id, c.model.name)
+    return { ...c, crashes, tier: crashes > 0 ? 2 : sidelined(c) ? 1 : 0 }
+  })
+  const healthy = scored.filter((c) => c.tier === 0)
   const pool = healthy.length ? healthy : scored
-  pool.sort((a, b) => a.crashes - b.crashes || Number(b.model.npuEligible) - Number(a.model.npuEligible) || (b.model.sizeBytes ?? 0) - (a.model.sizeBytes ?? 0))
+  pool.sort((a, b) => a.tier - b.tier || a.crashes - b.crashes || Number(b.model.npuEligible) - Number(a.model.npuEligible) || (b.model.sizeBytes ?? 0) - (a.model.sizeBytes ?? 0))
   return pool[0]?.id ?? null
 }

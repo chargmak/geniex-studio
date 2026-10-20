@@ -263,6 +263,8 @@ export class TurnRunner {
               metrics.ttftMs = ev.ttftMs
               metrics.totalMs = ev.totalMs
               metrics.tokensPerSecond = ev.tokensPerSecond
+              metrics.prefillTokensPerSecond = ev.prefillTokensPerSecond
+              metrics.timingsSource = ev.timingsSource
               metrics.completionTokens = metrics.completionTokens ?? ev.completionTokens
               metrics.finishReason = ev.finish_reason
               finished = true
