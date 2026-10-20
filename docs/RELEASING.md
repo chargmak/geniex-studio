@@ -39,7 +39,34 @@ Typechecks, runs the tests, builds, and uploads `GenieX Studio-<version>-win-arm
 `latest.yml` to a **draft** GitHub release. Nothing reaches users yet — that is deliberate, so a half-uploaded
 release can never be picked up as an update.
 
-Review the draft (add release notes — they are shown verbatim in Settings → Updates), then:
+Review the draft (add release notes — they are shown verbatim in Settings → Updates). Two things to check on the
+draft before publishing, both seen on 0.3.0 and 0.4.0:
+
+- **The `.blockmap` may be missing.** electron-builder sometimes logs "creating GitHub release" twice and parks the
+  blockmap on a second, empty draft with the same tag. Put it on the real draft and remove the stray one:
+
+  ```bash
+  gh release upload v<version> release/GenieX-Studio-<version>-win-arm64.exe.blockmap --clobber
+  gh api repos/chargmak/geniex-studio/releases --jq '.[] | {id, name, draft, assets: [.assets[].name]}'
+  gh api -X DELETE repos/chargmak/geniex-studio/releases/<id-of-the-empty-draft>
+  ```
+
+  Delete by **id**, never `gh release delete v<version>` — both releases share the tag, and that command would take
+  the wrong one. (In Git Bash prefix `gh api` calls with `MSYS_NO_PATHCONV=1`, or the leading path gets rewritten.)
+
+- **Push the commit and the tag before publishing:**
+
+  ```bash
+  git push --follow-tags
+  ```
+
+  Publishing a draft whose tag does not exist on GitHub makes GitHub create `v<version>` at whatever `origin/main`
+  points to at that moment. If the "Release v<version>" commit has not been pushed yet, the tag lands on the
+  previous commit and has to be force-moved afterwards. The tag push also starts `.github/workflows/release.yml`;
+  that is fine either way — against a published release the publisher only warns "GitHub release not created" and
+  uploads nothing.
+
+Then:
 
 ```bash
 npm run release:publish
@@ -47,12 +74,6 @@ npm run release:publish
 
 It verifies all three assets are attached before flipping the draft to published and marking it latest.
 Installed copies pick it up at their next check.
-
-Finally push the tag so the repo matches what shipped:
-
-```bash
-git push --follow-tags
-```
 
 ## Versioning
 
